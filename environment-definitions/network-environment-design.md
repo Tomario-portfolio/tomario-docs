@@ -137,11 +137,13 @@ production環境はリリース前、dev/stagingと同じcost-stop対象とす�
 ```
 インターネット
     │
+CloudFront（HTTPS終端・S3/ALBへのパス振り分け）
+    │  /api/* のみALBへ（X-Origin-Verifyヘッダー付与）
 Internet Gateway
     │
    ALB（パブリックサブネット）
     │
-   ECSタスク（プライベートサブネット）─── VPCエンドポイント ─── ECR / CloudWatch Logs / Secrets Manager
+   ECSタスク（プライベートサブネット）─── VPCエンドポイント ─── ECR / CloudWatch Logs / Secrets Manager / SSM
     │
    RDS（プライベートサブネット）
 ```
