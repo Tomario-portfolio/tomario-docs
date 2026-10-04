@@ -1,7 +1,5 @@
 # ネットワーク
 
-## 要件
-
 ## リージョン・環境
 
 東京リージョン（ap-northeast-1）を使用する。
@@ -14,7 +12,7 @@
 |------|------|
 | dev | 10.0.0.0/16 |
 | staging | 10.1.0.0/16 |
-| production | 10.2.0.0/16（別アカウントのため厳密な重複回避は必須ではないが、将来のVPCピアリング等に備えて予約） |
+| production | 10.2.0.0/16（別アカウントのため厳密な重複回避は必須ではないが、将来のVPCピアリング等に備えて分けている） |
 
 ## Availability Zone
 
@@ -35,17 +33,6 @@ VPC内はルートテーブルを基準にパブリックサブネットとプ�
 | パブリックサブネット | Internet Gatewayへの経路を持つ | ALB |
 | プライベートサブネット | VPC内部通信に限定 | ECSタスク・RDS |
 
-<!--
-| パブリックサブネット | Internet Gatewayへの経路を持つ | ALB・EC2 |
-| プライベートサブネット | VPC内部通信に限定 | RDS |
-
-RDSはプライベートサブネットに配置し、インターネットからの直接アクセスを遮断する。
-
-EC2についてはdev環境においてNATゲートウェイのコストを削減するためパブリックサブネットに配置する。
-インターネットからEC2への直接アクセスはセキュリティグループで制限する。
-prd環境のEC2配置はTBD。
--->
-
 ALBのみをパブリックサブネットに配置し、ECSタスク・RDSはプライベートサブネットに配置する。
 インターネットに直接公開するリソースをALBのみに限定することでセキュリティを強化する。
 
@@ -58,20 +45,13 @@ ALBのみをパブリックサブネットに配置し、ECSタスク・RDSは�
 NAT Gatewayは使用しない（全環境共通の方針）。
 ECSタスクからAWSサービスへのアクセスはVPCエンドポイント経由で行う。
 
-NAT Gatewayが無いことで唯一到達できなかったのが、ECSタスク定義の初期イメージ（`bootstrap_image`）が参照していたパブリックのECR Gallery（`public.ecr.aws`）だった（2026-07-10、cost-start後のサービス再作成時にクラッシュループとして顕在化）。NAT Gateway導入（月$30〜45程度）ではなく、`bootstrap_image`自体をプライベートECR（`tomario-app`）内のプレースホルダーイメージ参照に変更することで、追加コストゼロで解決した。
-
-<!--
-dev環境ではコスト最適化のためNAT Gatewayを使用しない。
-EC2をパブリックサブネットに配置することで代替する。
-
-prd環境での採用はTBD。
--->
+NAT Gatewayが無いことに起因する到達性の問題が過去に一度発生し、`bootstrap_image`の参照先変更で解決した。経緯は[ADR: bootstrap_imageのプライベートECR参照化](../../tomario-steering/adr/infra/network/002-bootstrap-image-private-ecr.md)を参照。
 
 ## VPCエンドポイント
 
 ECSタスク（プライベートサブネット）がAWSサービスに接続するためVPCエンドポイントを使用する。
 インターネットを経由せずAWS内部ネットワークで接続するため、NAT Gatewayより安全。
-dev環境ではコスト削減のため作業時以外は削除する運用とする（cost-stop対象）。
+Interface型は時間課金のため、全環境で作業時以外は削除する運用とする（cost-stop対象）。
 
 | エンドポイント | 種別 | 用途 |
 |-------------|------|------|
@@ -79,35 +59,24 @@ dev環境ではコスト削減のため作業時以外は削除する運用と�
 | ECR DKR | Interface | ECSタスクのイメージ取得（Docker通信） |
 | S3 | Gateway | ECRイメージレイヤーの取得（無料） |
 | CloudWatch Logs | Interface | ECSタスクのログ送信 |
-| Secrets Manager | Interface | DB接続情報の取得 |
+| Secrets Manager | Interface | DB接続情報・SECRET_KEYの取得 |
+| SSM Messages | Interface | ECS Exec（障害対応・DBメンテナンス時のコンテナ接続）のセッション確立 |
 
 ## 通信フロー
 
 ```
 インターネット
     │
+CloudFront（HTTPS終端・S3/ALBへのパス振り分け）
+    │  /api/* のみALBへ（X-Origin-Verifyヘッダー付与）
 Internet Gateway
     │
    ALB（パブリックサブネット）
     │
-   ECSタスク（プライベートサブネット）─── VPCエンドポイント ─── ECR / CloudWatch Logs / Secrets Manager
+   ECSタスク（プライベートサブネット）─── VPCエンドポイント ─── ECR / CloudWatch Logs / Secrets Manager / SSM
     │
    RDS（プライベートサブネット）
 ```
-
-<!--
-## 通信フロー（旧）
-
-インターネット
-    │
-Internet Gateway
-    │
-   ALB（パブリックサブネット）
-    │
-   EC2 / ASG（パブリックサブネット）
-    │
-   RDS（プライベートサブネット）
--->
 
 ## VPC Flow Logs
 
@@ -117,5 +86,5 @@ VPC内の全ネットワークトラフィックをS3（ログ集約バケット
 
 ## 命名規則
 
-リソース名は `{システム名}-{環境}-{リソース}` の形式で統一する。
+リソース名は `{システム名}-{環境}-{リソース}` の形式で統一する（詳細は[naming-high-level-spec.md](naming-high-level-spec.md)参照）。
 障害対応時にリソースの所属環境を即座に識別できるようにするため。

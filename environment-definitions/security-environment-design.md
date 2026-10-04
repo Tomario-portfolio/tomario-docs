@@ -20,10 +20,10 @@ AWSアカウント上の全API操作を記録し監査証跡を保存する。
 
 | 項目 | nonprod/shared | production |
 |------|-----|-----|
-| 証跡名 | tomario-shared-trail | tomario-production-trail（予定） |
+| 証跡名 | tomario-shared-trail | tomario-production-trail |
 | 対象イベント | 管理イベントのみ（データイベントは対象外） | 管理イベントのみ |
 | グローバルサービスイベント | 含む（IAM操作など） | 含む |
-| マルチリージョン証跡 | 無効（東京リージョンのみ） | 無効 |
+| マルチリージョン証跡 | 有効（`is_multi_region_trail=true`、2026-09-16修正。WAF用CloudFront Web ACL等us-east-1で発生するAPI操作を記録するため） | 有効（同左） |
 | ログファイル整合性検証 | 有効 | 有効 |
 | S3バケット名 | tomario-shared-cloudtrail-{nonprod_account_id} | tomario-production-logs-{prod_account_id} |
 | S3保持期間 | 90日（ライフサイクルポリシー） | 90日 |
@@ -41,8 +41,8 @@ AWSアカウントへの脅威を継続的に検出するマネージドサー�
 
 | 項目 | nonprod/shared | production |
 |------|-----|-----|
-| 有効化 | 有効 | 有効化予定 |
-| 検出器名（タグ） | tomario-shared-guardduty | tomario-production-guardduty（予定） |
+| 有効化 | 有効 | 有効 |
+| 検出器名（タグ） | tomario-shared-guardduty | tomario-production-guardduty |
 | 試用後コスト | ~$0.50/月（低トラフィック） | トラフィックに応じて変動 |
 
 dev・staging環境は個別のGuardDutyを持たず、nonprod/shared側を共有する（アカウント/リージョンにつき1つまでのため）。
@@ -73,7 +73,7 @@ AWSリソースの設定変更履歴を記録しコンプライアンス評価�
 | 有効化 | 無効（コードのみ実装済み） | コードは常設、**有効化は面接期間のみ**（Security Hubと同時に切り替え） |
 | 記録対象 | 全リソース | 全リソース |
 | 月額コスト目安 | ~$1〜3（記録件数による） | 有効化時のみ課金（面接期間外は$0） |
-| S3バケット名 | tomario-shared-config-{nonprod_account_id} | tomario-production-config-{prod_account_id}（予定） |
+| S3バケット名 | tomario-shared-config-{nonprod_account_id} | tomario-production-config-{prod_account_id} |
 
 ---
 
@@ -85,9 +85,9 @@ CloudFront・ALB双方にAWS Managed Rule Groupsを使ったWAF Web ACLを導入
 |------|-----|-----|
 | 導入方針 | 導入しない | 導入する（cost-stopと同じ発想で、常時起動はせず面接が近いタイミングだけ作成） |
 | 理由 | 検証環境のためコスト対効果が薄い | 実運用環境として保護は必要だが、常時起動コスト（月$14〜16）は非商用ポートフォリオでは過大 |
-| Managed Rule Groups | ― | `AWSManagedRulesCommonRuleSet`（OWASP Top10相当の汎用防御）、`AWSManagedRulesKnownBadInputsRuleSet`（既知の悪意あるリクエストパターン）、`AWSManagedRulesSQLiRuleSet`（DBバックエンドのためSQLi対策を追加）の3つをCloudFront用Web ACLにアタッチ |
+| Managed Rule Groups | ― | `AWSManagedRulesCommonRuleSet`（OWASP Top10相当の汎用防御）、`AWSManagedRulesKnownBadInputsRuleSet`（既知の悪意あるリクエストパターン）、`AWSManagedRulesAmazonIpReputationList`（不審IPのブロック）の3つ＋レートベースルール（`rate_limit`、DoS・ブルートフォース対策）をアタッチ。SQLi専用ルール（`AWSManagedRulesSQLiRuleSet`）は導入していない（非機能試験S-07で対象外と確認済み） |
 
-**判断の経緯：** 当初は非商用ポートフォリオのため見送っていたが、WAFのWeb ACLは「停止」ができず「存在（課金）／削除（無課金）」の二択かつ時間按分課金であることが判明。cost-stop/startと同じ発想でWeb ACLも使う時だけ作成・削除する運用にすれば実質数十〜百円/月に収まるため、導入する方針に変更した（常時起動なら月$14〜16程度）。production自体はリリース後常時稼働だが、WAFは常時稼働に切り替えた後も面接が近いタイミングだけ作成する運用とする（2026-08-03決定）。実装（cost-stop.yml/cost-start.ymlへの組み込み含む）はproduction構築のタイミングで対応する。
+**判断の経緯：** [ADR: セキュリティスタックの「使う時だけ有効化」運用](../../tomario-steering/adr/infra/security/001-security-stack-cost-management.md)を参照。
 
 ---
 
@@ -97,6 +97,8 @@ CloudFront・ALB双方にAWS Managed Rule Groupsを使ったWAF Web ACLを導入
 |--------|-----|-----|
 | enable_security_hub | false | 面接期間のみtrue、それ以外はfalse |
 | enable_config | false | 面接期間のみtrue、それ以外はfalse |
+
+`modules/security`自体はこの2変数を別々に持つが、`envs/prod/production/security`では両方とも環境側の`enable_security_stack`フラグ1つに連動させている（WAFの`enable_waf`も同じフラグ）。3つをまとめて`security-stack.yml`から切り替えられるようにするため（詳細は[security-high-level-spec.md](../basic-design/security-high-level-spec.md)参照）。
 
 ---
 

@@ -1,7 +1,5 @@
 # 可用性
 
-## 要件
-
 ## システム重要度
 
 本システムはホテル予約サービスを提供するため、以下の重要度とする。
@@ -14,7 +12,7 @@
 
 ## 稼働時間
 
-production環境は本来24時間稼働を想定するが、**リリース前（面接活動期間に入るまで）はコスト優先でdev・staging同様のcost-stop運用とする**。リリース時（面接日程が近づいたタイミング）に常時稼働へ切り替える。切り替えが必要な設定（ALB削除保護など）はTerraformコード上にコメントで両方の値を用意しておき、リリース時はコメントを入れ替えるだけで切り替えられるようにする（詳細は[backend-environment-design.md](../../tomario-infra-design/environment-definitions/backend-environment-design.md)参照）。
+production環境は本来24時間稼働を想定するが、**一般公開前はコスト優先でdev・staging同様のcost-stop運用とする**。公開時に常時稼働へ切り替える。
 dev・staging環境はコスト最適化のため作業時のみ起動する運用とする（cost-stop/start）。
 
 ## 冗長構成
@@ -25,23 +23,21 @@ ALBを上段に配置してECSタスクへトラフィックを転送する。
 ALBのヘルスチェックにより異常なタスクへのルーティングを自動的に停止する。
 ECSサービスがタスクの死活を監視し、異常終了時に自動で再起動する。
 
-dev環境ではタスク数を1（`desired_count=1`）とする。
-staging環境ではタスク数を2（`desired_count=2`）とし、Application Auto Scaling（min=2/max=4、target CPU 70%）を有効化する。水平スケーリングの実挙動を検証することが目的で、CPU/メモリ自体はdevと同じ値（256/512）のまま変えない（垂直スケールはしない方針）。
-production環境はタスク数・Auto Scaling設定（min=2/max=4、target CPU 70%）はstagingでの検証結果を引き継ぐ想定だが、CPU/メモリはstagingの2倍（512/1024）とする。
+| 環境 | タスク数 | Auto Scaling |
+|------|--------|-------------|
+| dev | 1 | 無効 |
+| staging | 2（2AZに分散） | 有効（min=2/max=4、target CPU 70%） |
+| production | 2（2AZに分散） | 有効（min=2/max=4、target CPU 70%） |
 
-<!--
-### ALB + ASGによる冗長（旧）
-
-ALBを上段に配置してEC2をActive-Active構成とする。
-ASGにより2AZにまたがってEC2インスタンスを管理し、1AZ障害時も残りのAZでサービスを継続する。
-ALBのヘルスチェックにより異常なインスタンスへのルーティングを自動的に停止する。
--->
+staging・productionはタスクを2AZに分散配置するため、1AZ障害時も残りのタスクでサービスを継続できる。
+CPU/メモリは全環境256/512とし、垂直スケールはせず水平（タスク数）のみで負荷に対応する（詳細は[compute-high-level-spec.md](compute-high-level-spec.md)参照）。
 
 ### RDS
 
-dev・staging環境ではコスト最適化のためSingle-AZ構成とする。
-Multi-AZは変数化済みだが、dev・stagingでは値をオフのままとする（非商用ポートフォリオでインスタンス料金がほぼ倍になるコストに見合う必要性が薄いと判断）。
-production環境はMulti-AZを有効化する。ALB/ECSの水平冗長化に加えてDB層も自動フェイルオーバーを持たせることで、単一障害点を残さない構成とする（詳細は[database-high-level-spec.md](database-high-level-spec.md)参照）。
+全環境Single-AZ構成とする。
+Multi-AZは変数化済みだが、全環境で無効としている。判断の経緯は[ADR: RDS Multi-AZの見送り](../../tomario-steering/adr/infra/database/003-multi-az-cost-tradeoff.md)を参照。
+
+そのためDB層はAZ障害時の単一障害点として残る。AZ障害時はポイントインタイムリストアで別AZに復元する運用で対応する（[backup-high-level-spec.md](backup-high-level-spec.md)参照）。productionで可用性要件が高まった場合は、`multi_az`変数を`true`にするだけで自動フェイルオーバー構成に切り替えられる。
 
 ## リージョン間の冗長
 

@@ -33,7 +33,7 @@ ECR（Elastic Container Registry）を管理する独立コンポーネント。
 | 環境 | リポジトリ名 | 管理場所 | 備考 |
 |------|------------|---------|------|
 | dev / staging | tomario-app | envs/nonprod/shared | 既存名を維持。dev/staging間で共有 |
-| production | tomario-production-app（予定） | envs/prod/production（予定） | 新規作成。nonprodとはクロスアカウント共有なし |
+| production | tomario-production-app | envs/prod/production/ecr | 新規作成。nonprodとはクロスアカウント共有なし |
 
 | 項目 | 内容 |
 |------|------|

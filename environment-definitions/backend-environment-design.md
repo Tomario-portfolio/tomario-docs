@@ -36,19 +36,6 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 | インバウンド | TCP | 8080 | ALB-SG |
 | アウトバウンド | 全て | 全て | 0.0.0.0/0 |
 
-<!--
-### EC2-SG（旧）
-
-| 項目 | dev | prd |
-|------|-----|-----|
-| SG名 | tomario-dev-ec2-sg | tomario-prd-ec2-sg |
-
-| 方向 | プロトコル | ポート | 送信元 |
-|------|----------|-------|--------|
-| インバウンド | TCP | 8080 | ALB-SG |
-| アウトバウンド | 全て | 全て | 0.0.0.0/0 |
--->
-
 ---
 
 ## ALB
@@ -59,18 +46,10 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 | スキーム | internet-facing | internet-facing | internet-facing |
 | 配置サブネット | パブリックサブネット×2 | パブリックサブネット×2 | パブリックサブネット×2 |
 | アクセスログ | 有効。S3（ログ集約バケット、`logging-environment-design.md`参照）の`/alb/`プレフィックスへ出力（2026-07-13実装） | 同左 | 同左 |
-| 削除保護（`enable_deletion_protection`） | 無効（cost-stopで定期的に削除するため） | 無効（同左） | **リリース前：無効**（cost-stop対象のため、有効だと削除に失敗する）。**リリース後：有効**に切り替え（誤destroy防止、AWS推奨） |
-| 運用 | 未使用時は削除（~$17/月） | 未使用時は削除（負荷テスト実施時のみ起動） | **リリース前：**未使用時は削除（dev/staging同様のcost-stop対象）。**リリース後：**常時起動（~$17/月、面接期間中いつでもデモ可能な状態を維持） |
+| 削除保護（`enable_deletion_protection`） | 無効（固定値、変数化していない） | 無効（同左） | 無効（同左、一般公開前のため） |
+| 運用 | 未使用時は削除（~$17/月） | 未使用時は削除（負荷テスト実施時のみ起動） | 一般公開前：未使用時は削除（dev/staging同様のcost-stop対象）。公開後：常時起動（~$18/月、デモ可能な状態を維持） |
 
-**リリース前後の切り替え方針：** `alb_deletion_protection`変数はTerraformコード上でリリース前後2つの値をコメントで併記し、リリース時にコメントを入れ替えて切り替える。
-
-```hcl
-module "frontend_backend_example" {
-  # ...
-  alb_deletion_protection = false # リリース前：cost-stop対象のためfalse固定
-  # alb_deletion_protection = true  # リリース後：常時稼働に切り替えたらこちらに変更
-}
-```
+**一般公開時の切り替え方針：** `enable_deletion_protection`はコード上`false`固定（変数化していない）。公開して常時稼働へ切り替えるタイミングで、`modules/backend/alb.tf`を直接`true`に変更する想定（詳細は[cost-high-level-spec.md](../basic-design/cost-high-level-spec.md)参照）。
 
 ### リスナー
 
@@ -104,7 +83,9 @@ module "frontend_backend_example" {
 | 項目 | dev | staging | production |
 |------|-----|---------|---|
 | クラスター名 | tomario-dev-cluster | tomario-staging-cluster | tomario-production-cluster |
-| Container Insights | 無効 | 無効（`RunningTaskCount`メトリクスが表示できない既知の問題あり。`todo.md` #1） | **有効**。本番の可観測性を優先し、最初から有効化する（追加コストは軽微） |
+| Container Insights | 有効 | 有効 | 有効 |
+
+全環境共通モジュール（`modules/backend/ecs.tf`）で無条件に有効化している（2026-09-29、PR #89）。`RunningTaskCount`等のメトリクスがContainer Insights有効時のみ配信される仕様のため、ダッシュボードでのタスク数可視化に必要。
 
 ---
 
@@ -114,8 +95,8 @@ module "frontend_backend_example" {
 |------|-----|---------|---|
 | タスク定義名 | tomario-dev-task | tomario-staging-task | tomario-production-task |
 | 起動タイプ | FARGATE | FARGATE | FARGATE |
-| CPU | 256（0.25 vCPU） | 256（変更なし。垂直スケールはしない方針、2026-07-11決定） | **512**（0.5 vCPU、stagingの2倍。2026-08-03決定） |
-| メモリ | 512 MB | 512 MB（変更なし） | **1024 MB**（stagingの2倍） |
+| CPU | 256（0.25 vCPU） | 256（変更なし。垂直スケールはしない方針、2026-07-11決定） | 256（変更なし。stagingと同一） |
+| メモリ | 512 MB | 512 MB（変更なし） | 512 MB（stagingと同一） |
 | CPUアーキテクチャ | ARM64（Graviton） | ARM64（Graviton） | ARM64（Graviton） |
 | bootstrap_image | `tomario-app`（プライベートECR）の`bootstrap`タグ | 同左（旧：public ECR Galleryを参照しNAT無しVPCでpull失敗していたため修正、2026-07-10） | `tomario-production-app`（別リポジトリ）の`bootstrap`タグ |
 | コンテナポート | 8080 | 8080 | 8080 |
@@ -128,9 +109,9 @@ module "frontend_backend_example" {
 | DB_HOST | 環境変数（Terraform） | RDSエンドポイント（非機密） |
 | DB_PORT | 環境変数（ハードコード） | `3306`（固定値） |
 | DB_NAME | 環境変数（ハードコード） | `tomario`（固定値） |
-| DB_USER | Secrets Manager | RDSマスターユーザー名（自動ローテーション有効） |
-| DB_PASSWORD | Secrets Manager | RDSマスターパスワード（自動ローテーション有効） |
-| SECRET_KEY | Secrets Manager | Flask セッション署名キー（**手動登録、ローテーション未設定**。todo.md SEC-8として改善予定） |
+| DB_USER | Secrets Manager | RDSマスターユーザー名（`manage_master_user_password`でAWSが管理。自動スケジュールでの定期ローテーションは未設定、CLIで手動トリガー可能） |
+| DB_PASSWORD | Secrets Manager | RDSマスターパスワード（同上） |
+| SECRET_KEY | Secrets Manager | Flask セッション署名キー（**手動登録、ローテーション未設定**。SEC-8として改善を検討中） |
 
 ---
 
@@ -172,49 +153,10 @@ module "frontend_backend_example" {
 
 現時点では最小権限。アプリケーションがAWSサービスを直接呼び出す場合に追加する。
 
-<!--
-## IAM（EC2用）（旧）
-
-| 項目 | dev | prd |
-|------|-----|-----|
-| ロール名 | tomario-dev-ec2-role | tomario-prd-ec2-role |
-| インスタンスプロファイル名 | tomario-dev-ec2-profile | tomario-prd-ec2-profile |
-
-| 付与ポリシー | 用途 |
-|------------|------|
-| AmazonSSMManagedInstanceCore | SSM Session Manager経由でのEC2接続 |
-| secretsmanager:GetSecretValue | RDS接続情報の取得 |
-
-## 起動テンプレート（旧）
-
-| 項目 | dev | prd |
-|------|-----|-----|
-| 起動テンプレート名 | tomario-dev-lt | tomario-prd-lt |
-| インスタンスタイプ | t2.micro | TBD |
-| AMI | Amazon Linux 2023（最新） | Amazon Linux 2023（最新） |
-| キーペア | 使用しない | 使用しない |
-| 配置サブネット | パブリック | プライベート |
-| アプリケーションポート | 8080 | 8080 |
-| ユーザーデータ | Flaskアプリ自動セットアップ | Flaskアプリ自動セットアップ |
-
-## ASG（旧）
-
-| 項目 | dev | prd |
-|------|-----|-----|
-| ASG名 | tomario-dev-asg | tomario-prd-asg |
-| 最小台数 | 0（未使用時は停止） | 2 |
-| 最大台数 | 2 | TBD |
-| 希望台数 | 1（作業時） | 2 |
-| ヘルスチェックタイプ | ELB | ELB |
-| ヘルスチェック猶予期間 | 300秒 | 300秒 |
-| 配置サブネット | パブリックサブネット×2 | プライベートサブネット×2 |
--->
-
 ---
 
 ## TBD解消事項
 
 | 項目 | 内容 |
 |------|------|
-| staging CPU/メモリ | dev同一（256/512）に決定。垂直スケールはせず、水平（タスク数・Auto Scaling）のみで負荷対応する方針（2026-07-11） |
-| production CPU/メモリ | stagingの2倍（512/1024）に決定（2026-08-03） |
+| staging/production CPU/メモリ | devと同一（256/512）に決定。垂直スケールはせず、水平（タスク数・Auto Scaling）のみで負荷対応する方針（2026-07-11） |

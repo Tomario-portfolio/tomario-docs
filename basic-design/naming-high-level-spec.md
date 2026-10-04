@@ -19,7 +19,7 @@
 
 ECRリポジトリ（`tomario-app`）のみ例外で、既存リポジトリ名をそのまま維持する（AWS側でリネーム不可のため。dev/stagingで共有し、productionは`tomario-production-app`という別リポジトリを使用）。
 
-リソース別の具体的な命名規則は詳細設計書に記載する。
+リソース別の具体的な名称は[環境定義書](../environment-definitions/)に記載する。
 
 ## タグ規則
 

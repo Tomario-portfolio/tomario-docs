@@ -1,29 +1,37 @@
 # データベース
 
-## 要件
-
 ## 基本方針
 
 データベースにはAWSマネージドサービスのRDSを使用する。
-バックアップ・フェイルオーバーをAWSに委任することで運用コストを削減する。
+バックアップ・パッチ適用をAWSに委任することで運用コストを削減する。
 RDSはプライベートサブネットに配置し、インターネットからの直接アクセスを遮断する。
 
 ## RDS
 
-MySQLをエンジンとして使用する。
+MySQL 8.4をエンジンとして使用する（当初は8.0だったが、標準サポート終了に伴い2026-07-07にアップグレード）。
 ECSタスク上のFlaskアプリケーションからのみ接続を許可する。
+ストレージはgp3・暗号化有効とする。
 
-DB接続情報（パスワード）はSecrets Managerで管理し、コードに直接記載しない。
+DB接続情報（ユーザー名・パスワード）は`manage_master_user_password`によりSecrets Managerで管理し、コードに直接記載しない。
 
 ### 環境別構成方針
 
-dev・staging環境ではコスト最適化のためSingle-AZ構成とし、作業時以外は停止する運用とする（cost-stop/start）。
-インスタンスクラスはdev・staging共通で`db.t3.micro`とする（垂直スケールはしない方針）。stagingで負荷テストを実施する直前のみ、AWS CLIで一時的に`db.t4g.medium`（Graviton、固定4GiBメモリ）にスケールアップし、終了後に`db.t3.micro`へ戻す運用とする。Terraform上の値は変更しない。
-Multi-AZは変数化のみ行い、dev・staging環境では値を`false`のままとする（非商用ポートフォリオでインスタンス料金がほぼ倍になるコストに見合う必要性が薄いと判断）。
+| 項目 | dev | staging | production |
+|------|-----|---------|-----------|
+| インスタンスクラス | db.t3.micro | db.t3.micro | db.t3.micro |
+| Multi-AZ | 無効 | 無効 | 無効（変数化済み、検討中） |
+| Performance Insights | 無効 | 無効 | 無効 |
+| 運用 | 作業時以外は停止 | 同左 | 一般公開前は同左 |
 
-production環境はMulti-AZを`true`にする。AWS Well-Architectedの信頼性の観点で、自動フェイルオーバーは面接で語れる実績として残す価値があると判断（コストはSingle-AZの約2倍、db.t3.microで~$15/月→~$30/月）。インスタンスクラスはstagingで検証済みの`db.t3.micro`をそのまま踏襲する（垂直スケールはしない方針を継続）。
+- インスタンスクラスは全環境`db.t3.micro`とする（垂直スケールはしない方針）。stagingで負荷テストを実施する直前のみ、AWS CLIで一時的に`db.t4g.medium`（Graviton、固定4GiBメモリ）にスケールアップし、終了後に`db.t3.micro`へ戻す運用とする。Terraform上の値は変更しない。選定理由は[ADR: RDSインスタンスクラスの選定](../../tomario-steering/adr/infra/database/005-db-instance-class-selection.md)を参照
+- Multi-AZは変数（`multi_az`）化のみ行い、全環境で無効としている。判断の経緯は[ADR: RDS Multi-AZの見送り](../../tomario-steering/adr/infra/database/003-multi-az-cost-tradeoff.md)を参照
+- Performance Insightsは導入していない。インスタンスクラスの制約で技術的に導入できなかった経緯は[ADR: RDS Performance Insightsの導入見送り](../../tomario-steering/adr/infra/database/004-performance-insights-instance-class-limitation.md)を参照
 
-Multi-AZはTerraform上の恒久設定であり、RDSの起動・停止（`stop-db-instance`/`start-db-instance`）とは独立している。そのためリリース前はstaging同様cost-stop/startによる週次停止運用を継続し、Multi-AZ構成のまま停止・起動する（停止中もMulti-AZ分のストレージ課金は発生する）。リリース時に常時稼働へ切り替える。
+### RDS停止の7日制約への対策
+
+RDSは停止しても7日経過するとAWSにより自動的に起動される。
+これに対応するため、全環境にRDS自動停止Lambda（`modules/rds-autostop`）を配置している。
+EventBridgeで毎日1回（JST 05:00）起動し、RDSが`available`なのに対応するECSサービスが稼働していない場合（＝cost-startではなく7日制約による自動起動と判断できる場合）にRDSを再停止する。
 
 ## スキーマ
 
@@ -33,4 +41,4 @@ Multi-AZはTerraform上の恒久設定であり、RDSの起動・停止（`stop-
 | rooms | 部屋マスタ（部屋番号・タイプ・定員・料金） |
 | bookings | 予約情報（ユーザー・部屋・チェックイン/アウト日・ステータス） |
 
-詳細なカラム定義は詳細設計書に記載する。
+詳細なカラム定義は[要件定義書](../requirements/requirements.md)に記載する。

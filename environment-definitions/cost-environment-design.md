@@ -20,9 +20,9 @@ AWS BudgetsとCost Anomaly Detectionを管理するコンポーネント。
 
 | 項目 | nonprod/shared | production |
 |------|-----|-----|
-| バジェット名 | tomario-shared-monthly-budget | tomario-production-monthly-budget（予定） |
+| バジェット名 | tomario-shared-monthly-budget | tomario-production-monthly-budget |
 | バジェット種別 | COST（コストベース） | COST |
-| 予算上限 | $10/月（変数で変更可） | $130/月（リリース後の常時稼働ベースライン試算~$115/月に運用の余裕を見て設定。詳細は`cost-high-level-spec.md`参照） |
+| 予算上限 | $10/月（変数で変更可） | $130/月（一般公開前の目安。公開して常時稼働に切り替えたら試算額~$165/月に合わせて見直す予定。詳細は[cost-high-level-spec.md](../basic-design/cost-high-level-spec.md)参照） |
 | 集計単位 | MONTHLY | MONTHLY |
 | 通知先 | 管理者メールアドレス | 管理者メールアドレス |
 
@@ -47,16 +47,16 @@ dev・staging環境は個別のBudgetsを持たず、nonprod/shared側を共有�
 
 | 項目 | nonprod/shared | production |
 |------|-----|-----|
-| モニター名 | tomario-shared-anomaly-monitor | tomario-production-anomaly-monitor（予定） |
+| モニター名 | tomario-shared-anomaly-monitor | tomario-production-anomaly-monitor |
 | モニター種別 | DIMENSIONAL（AWSサービス別） | DIMENSIONAL |
 | ディメンション | SERVICE | SERVICE |
-| 備考 | AWSアカウントあたり1つのみ作成可能なため、shared環境に集約 | 別アカウントのため独立して作成予定 |
+| 備考 | AWSアカウントあたり1つのみ作成可能なため、shared環境に集約 | 別アカウントのため独立して作成済み |
 
 ### Anomaly Subscription
 
 | 項目 | nonprod/shared | production |
 |------|-----|-----|
-| サブスクリプション名 | tomario-shared-anomaly-subscription | tomario-production-anomaly-subscription（予定） |
+| サブスクリプション名 | tomario-shared-anomaly-subscription | tomario-production-anomaly-subscription |
 | 通知頻度 | DAILY（翌日通知） | DAILY |
 | 通知方式 | EMAIL | EMAIL |
 | 通知先 | 管理者メールアドレス | 管理者メールアドレス |
@@ -82,5 +82,5 @@ dev・staging環境は個別のAnomaly Monitor/Subscriptionを持たず、nonpro
 
 | 項目 | 内容 |
 |------|------|
-| production環境の月間予算上限 | $130/月に決定（2026-08-03、リリース後の常時稼働ベースライン~$115/月＋余裕。WAF/Security Hub等の面接期間限定コストは含まない） |
+| production環境の月間予算上限 | $130/月に決定（2026-08-03、一般公開前の目安として設定。常時稼働への切り替え時に試算額~$165/月に合わせて見直す） |
 | RDS負荷テスト時の一時スケールアップコスト | Budgetの予算上限には含めていない。頻度・時間が限定的なため個別に監視する |

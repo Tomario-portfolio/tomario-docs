@@ -19,8 +19,8 @@ workload環境（dev/staging/production）ごとに独立したVPCを作成す�
 
 | 項目 | dev | staging | production |
 |------|-----|---------|---|
-| VPC名 | tomario-dev-vpc | tomario-staging-vpc | tomario-production-vpc（予定） |
-| CIDR | 10.0.0.0/16 | 10.1.0.0/16 | 10.2.0.0/16（予定） |
+| VPC名 | tomario-dev-vpc | tomario-staging-vpc | tomario-production-vpc |
+| CIDR | 10.0.0.0/16 | 10.1.0.0/16 | 10.2.0.0/16 |
 | DNSサポート | 有効 | 有効 | 有効 |
 | DNSホスト名 | 有効 | 有効 | 有効 |
 
@@ -38,14 +38,6 @@ ap-northeast-1a と ap-northeast-1c の2AZ構成とする。
 | tomario-dev-public-ap-northeast-1c | パブリック | ap-northeast-1c | 10.0.1.0/24 | ALB | 有効 |
 | tomario-dev-private-ap-northeast-1a | プライベート | ap-northeast-1a | 10.0.10.0/24 | ECSタスク・RDS | 無効 |
 | tomario-dev-private-ap-northeast-1c | プライベート | ap-northeast-1c | 10.0.11.0/24 | ECSタスク・RDS | 無効 |
-
-<!--
-dev環境のサブネット（旧）
-| tomario-dev-public-ap-northeast-1a | パブリック | ap-northeast-1a | 10.0.0.0/24 | ALB・EC2 | 有効 |
-| tomario-dev-public-ap-northeast-1c | パブリック | ap-northeast-1c | 10.0.1.0/24 | ALB・EC2 | 有効 |
-| tomario-dev-private-ap-northeast-1a | プライベート | ap-northeast-1a | 10.0.10.0/24 | RDS | 無効 |
-| tomario-dev-private-ap-northeast-1c | プライベート | ap-northeast-1c | 10.0.11.0/24 | RDS | 無効 |
--->
 
 ### staging環境
 
@@ -91,7 +83,7 @@ dev/stagingと同一構成（`network`モジュールを`env="production"`で呼
 | 環境 | 方針 |
 |------|------|
 | dev / staging | 使用しない（VPCエンドポイントで代替） |
-| production | 使用しない予定（同上） |
+| production | 使用しない（同上） |
 
 唯一の必要理由だった`bootstrap_image`のpublic ECR Gallery参照は、プライベートECR参照に修正済み（2026-07-10、詳細はcompute側参照）。
 
@@ -153,20 +145,6 @@ Internet Gateway
     │
    RDS（プライベートサブネット）
 ```
-
-<!--
-## 通信フロー（旧）
-
-インターネット
-    │
-Internet Gateway
-    │
-   ALB（パブリックサブネット）
-    │
-   EC2 / ASG（dev:パブリック / prd:プライベート）
-    │
-   RDS（プライベートサブネット）
--->
 
 ---
 
