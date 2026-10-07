@@ -1,14 +1,6 @@
 # monitoring 環境定義
 
-## 基本方針
-
-| 項目 | 内容 |
-|------|------|
-| Terraformバージョン | ~> 1.5 |
-| AWSプロバイダー | hashicorp/aws ~> 6.0 |
-
-SNS・CloudWatchアラームを管理するコンポーネント。
-インフラレベルの異常を検知し、管理者へ通知する。
+SNS・CloudWatchアラーム・CloudWatchダッシュボードを管理するコンポーネント（`modules/monitoring`）と、ログの保持設定を定義する。
 
 ---
 
@@ -17,36 +9,48 @@ SNS・CloudWatchアラームを管理するコンポーネント。
 | 項目 | dev | staging | production |
 |------|-----|---------|---|
 | トピック名 | tomario-dev-alarm | tomario-staging-alarm | tomario-production-alarm |
+| WAFアラーム用トピック（us-east-1） | ― | ― | tomario-production-waf-alarm（セキュリティスタック有効時のみ） |
 | 通知先 | 管理者メールアドレス | 管理者メールアドレス | 管理者メールアドレス |
 
 ---
 
 ## CloudWatchアラーム
 
-| アラーム名 | 監視対象 | メトリクス | 閾値 | 評価期間 | 通知先 |
-|-----------|---------|----------|------|---------|-------|
-| tomario-{env}-alb-unhealthy-host | ALB | UnHealthyHostCount | ≥ 1 | 1分×1回 | SNSトピック |
-| tomario-{env}-ecs-cpu | ECS（サービス） | CPUUtilization | ≥ 80% | 5分×2回 | SNSトピック |
-| tomario-{env}-rds-cpu | RDS | CPUUtilization | ≥ 80% | 5分×2回 | SNSトピック |
-| tomario-{env}-ecs-running-tasks | ECS（サービス） | RunningTaskCount | ― | ― | Application Auto Scalingの挙動可視化用（負荷テスト中にタスク数が増減した証跡を残す）。全環境でContainer Insightsを有効化済み（2026-09-29、PR #89）のため表示される（詳細は[backend-environment-design.md](backend-environment-design.md)参照） |
+| アラーム名 | 監視対象 | メトリクス | 閾値 | 評価期間 | 対象環境 |
+|-----------|---------|----------|------|---------|---------|
+| tomario-{env}-alb-unhealthy-host | ALB | UnHealthyHostCount | ≥ 1 | 1分×1回 | 全環境 |
+| tomario-{env}-ecs-cpu | ECS（サービス） | CPUUtilization | ≥ 80% | 5分×2回 | 全環境 |
+| tomario-{env}-rds-cpu | RDS | CPUUtilization | ≥ 80% | 5分×2回 | 全環境 |
+| tomario-{env}-waf-blocked | WAF（CloudFront用Web ACL） | BlockedRequests（Sum） | > 10 | 5分×1回 | production（セキュリティスタック有効時のみ。us-east-1に作成） |
 
 アラーム発報時（`alarm_actions`）と復旧時（`ok_actions`）の両方でSNSトピックに通知する。
 
 ---
 
-## ログ設計
+## CloudWatchダッシュボード
 
-| 対象 | 状況 | ロググループ／出力先 | 保持期間 |
-|------|------|------------|---------|
-| ECS（Flaskアプリ） | 収集済み。マルチライン例外（スタックトレース）は`awslogs-multiline-pattern`で1イベントにまとめる（2026-09-29、PR #90） | /ecs/tomario-{env}（CloudWatch Logs） | dev=7日／staging=30日／production=90日 |
-| VPCネットワーク | 収集済み（Flow Logs） | S3ログ集約バケットの`/flow-logs/`（`logging-environment-design.md`参照） | dev=7日／staging=30日／production=90日 |
-| ALB | 収集済み（2026-07-13実装） | S3ログ集約バケットの`/alb/` | dev=7日／staging=30日／production=90日 |
-| RDS | 未収集（見送り） | ― | ― |
-
-`retention_in_days`を変数化し、環境ごとに3段階の保持期間を設定する（2026-07-11決定。元は7日固定で明確な根拠のない初期設定だった）。
+| 項目 | 内容 |
+|------|------|
+| 表示メトリクス | ECSの`RunningTaskCount`（Container Insights） |
+| 目的 | Application Auto Scalingによるタスク数の増減を可視化する（負荷テスト時の証跡） |
 
 ---
 
-## TBD解消事項
+## ログ
+
+| 対象 | 出力先 | dev | staging | production |
+|------|-------|-----|---------|-----------|
+| ECS（Flaskアプリ） | CloudWatch Logs `/ecs/tomario-{env}` | 7日 | 30日 | 90日 |
+| VPC Flow Logs | S3ログ集約バケットの`/flow-logs/` | 7日 | 30日 | 90日 |
+| ALBアクセスログ | S3ログ集約バケットの`/alb/` | 7日 | 30日 | 90日 |
+| WAF | CloudWatch Logs `aws-waf-logs-tomario-production-*` | ― | ― | 30日（セキュリティスタック有効時のみ） |
+| RDS | 収集しない | ― | ― | ― |
+
+- ECSのログは`awslogs-multiline-pattern`を設定し、複数行のスタックトレースを1イベントにまとめる
+- CloudWatch Logsの`retention_in_days`、S3ライフサイクルの保持日数は変数で環境ごとに設定する（S3バケットの定義は[logging-environment-design.md](logging-environment-design.md)参照）
+
+---
+
+## 未解決事項
 
 なし

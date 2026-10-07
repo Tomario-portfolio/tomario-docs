@@ -1,15 +1,9 @@
 # database 環境定義
 
-## 基本方針
+RDS・DBサブネットグループ・RDS用セキュリティグループを管理するコンポーネント（`modules/database`）と、RDS自動停止Lambda（`modules/rds-autostop`）を定義する。
 
-| 項目 | 内容 |
-|------|------|
-| Terraformバージョン | ~> 1.5 |
-| AWSプロバイダー | hashicorp/aws ~> 6.0 |
-
-RDS・DBサブネットグループ・Secrets Managerを管理するコンポーネント。
-RDSはプライベートサブネットに配置し、ECSタスクからのみ接続を許可する。
-コスト管理のため、未使用時はRDSを停止する運用とする。
+RDSはcost-stopの対象（未使用時は停止）。productionも一般公開前は同じ扱いとする。
+設計判断（Multi-AZの見送り・インスタンスクラス・Performance Insightsの見送り）の理由は[database-high-level-spec.md](../basic-design/database-high-level-spec.md)の「関連する設計判断」に挙げたADRを参照。
 
 ---
 
@@ -23,7 +17,7 @@ RDSはプライベートサブネットに配置し、ECSタスクからのみ�
 
 | 方向 | プロトコル | ポート | 送信元 |
 |------|----------|-------|--------|
-| インバウンド | TCP | 3306 | ECS-SG（backendモジュールで管理） |
+| インバウンド | TCP | 3306 | ECS-SG |
 | アウトバウンド | 全て | 全て | 0.0.0.0/0 |
 
 ---
@@ -42,20 +36,22 @@ RDSはプライベートサブネットに配置し、ECSタスクからのみ�
 | 項目 | dev | staging | production |
 |------|-----|---------|---|
 | インスタンス名 | tomario-dev-rds | tomario-staging-rds | tomario-production-rds |
-| インスタンスクラス（通常時） | db.t3.micro | db.t3.micro（変更なし） | db.t3.micro（stagingで検証済みの値を踏襲。垂直スケールはしない方針を継続） |
-| インスタンスクラス（負荷テスト時） | ― | 一時的に`db.t4g.medium`へAWS CLIでスケールアップ（`apply_immediately`、終了後に戻す。Terraformの値は変えない） | ― |
+| インスタンスクラス | db.t3.micro | db.t3.micro | db.t3.micro |
 | エンジン | MySQL 8.4 | MySQL 8.4 | MySQL 8.4 |
+| DB名 | tomario | tomario | tomario |
+| マスターユーザー名 | admin | admin | admin |
 | ストレージタイプ | gp3 | gp3 | gp3 |
 | ストレージサイズ（allocated） | 20GB | 20GB | 20GB |
-| ストレージ自動拡張（max_allocated_storage） | 未設定 | 未設定 | 未設定（固定20GBのまま。導入は検討課題） |
+| ストレージ自動拡張（max_allocated_storage） | 未設定 | 未設定 | 未設定 |
+| ストレージ暗号化 | 有効 | 有効 | 有効 |
 | ポート | 3306 | 3306 | 3306 |
-| Multi-AZ | なし（Single-AZ、`multi_az`変数のデフォルトfalse） | なし（同左。コスト対効果が薄いため見送り） | なし（同左。`multi_az=true`にすればいつでも有効化可能だが、現状は未設定） |
+| Multi-AZ | 無効（`multi_az=false`） | 無効 | 無効 |
 | 自動マイナーバージョンアップ | 有効 | 有効 | 有効 |
-| Performance Insights | 無効 | 無効 | 無効（`db.t3.micro`／`t3.small`／`t4g.micro`ではMySQL 8.4.9でPerformance Insights自体が未サポート。2026-09-29に共通モジュールへの追加を試みたが`terraform apply`が失敗し判明、`t4g.medium`以上への恒久的な引き上げはコスト方針に反するため見送り） |
-| 削除保護（`deletion_protection`） | 無効（固定値、変数化していない） | 無効（同左） | 無効（同左） |
-| 運用 | 未使用時は停止（~$0.23/月） | 未使用時は停止（負荷テスト実施時のみ起動） | 一般公開前：stagingと同じcost-stop対象（未使用時は停止、~$3/月はストレージ分）。公開後：常時稼働（db.t3.micro Single-AZで~$22/月） |
+| Performance Insights | 無効 | 無効 | 無効 |
+| 削除保護（`deletion_protection`） | 無効（固定値） | 無効 | 無効 |
+| skip_final_snapshot | true（固定値） | true | true |
 
-> **補足：** エンジンバージョンは当初MySQL 8.0だったが、標準サポート終了（2026-07-31）に伴い8.4へアップグレード済み（2026-07-07）。
+stagingでの負荷テスト時のみ、インスタンスクラスを一時的に`db.t4g.medium`へ変更する（Terraformの値は変えない）。手順は`tomario-steering/verification/non-functional-test/procedures/performance-test-procedure.md`を参照。
 
 ### バックアップ
 
@@ -65,27 +61,36 @@ RDSはプライベートサブネットに配置し、ECSタスクからのみ�
 | バックアップ保持期間 | 7日 | 7日 | 7日 |
 | バックアップウィンドウ | 18:00〜19:00 UTC | 18:00〜19:00 UTC | 18:00〜19:00 UTC |
 | メンテナンスウィンドウ | 日曜 19:00〜20:00 UTC | 日曜 19:00〜20:00 UTC | 日曜 19:00〜20:00 UTC |
-| RPO/RTO目標 | 規定なし | 15分/30分（検証目的） | 15分/30分（`backup-high-level-spec.md`参照） |
-| リストア訓練 | 未実施 | 実施済み（2026-07-21、実測RTO約14分） | 未実施（破壊的操作のためstaging限定で実施する方針。RTO/RPO目標値はstagingの実測を踏襲） |
+
+RPO/RTO目標とリストア方式は[backup-high-level-spec.md](../basic-design/backup-high-level-spec.md)、リストア手順と訓練結果は`tomario-steering/verification/non-functional-test/`配下のbackup-test手順書・結果を参照。
 
 ---
 
-## Secrets Manager
+## Secrets Manager（DB認証情報）
 
 | 項目 | 内容 |
 |------|------|
-| 管理方法 | `manage_master_user_password` によるSecrets Manager自動管理 |
-| ローテーション | 自動スケジュールでの定期ローテーションは未設定。CLIで手動トリガー可能（`--rotate-master-user-password`） |
-| 取得権限 | ECS Task Execution Roleに `secretsmanager:GetSecretValue` を付与（backendモジュールで管理） |
-
-> **注意：** RDSを停止しても7日後にAWSが自動で再起動する。全環境にRDS自動停止Lambda（`modules/rds-autostop`）を配置し、EventBridgeで毎日1回、ECSが停止しているのにRDSだけ`available`な状態を検知して自動的に再停止する運用に切り替え済み（2026-09-29、PR #93。手動での毎週停止し直す運用は廃止）。
+| 管理方法 | `manage_master_user_password`によるSecrets Manager自動管理 |
+| ローテーション | 自動スケジュールは未設定（CLIの`--rotate-master-user-password`で手動実行可能） |
+| 取得権限 | ECS Task Execution Roleに`secretsmanager:GetSecretValue`を付与（[backend-environment-design.md](backend-environment-design.md)参照） |
 
 ---
 
-## TBD解消事項
+## RDS自動停止Lambda（`modules/rds-autostop`）
+
+停止したRDSが7日後にAWSにより自動起動された場合に、再停止する。
+
+| 項目 | dev | staging | production |
+|------|-----|---------|---|
+| 配置 | あり | あり | あり |
+| 起動スケジュール | EventBridge `rate(1 hour)`（1時間ごと） | 同左 | 同左 |
+| 停止条件 | RDSが`available`、かつ直近180分以内に7日制約による自動起動のRDSイベントがあり、かつ対応するECSサービスが稼働していない | 同左 | 同左 |
+
+---
+
+## 未解決事項
 
 | 項目 | 内容 |
 |------|------|
-| DB名 | `tomario`（Terraformデフォルト値として設定済み） |
-| マスターユーザー名 | `admin`（Terraformデフォルト値として設定済み） |
-| skip_final_snapshot | 全環境`true`（固定値、変数化していない）。production含め、destroy時に最終スナップショットは残らない。cost-stopはRDSを`stop-db-instance`するだけでdestroyしないため通常運用では影響しないが、意図せずdestroyした場合のデータ消失リスクとしては残っている（検討課題） |
+| skip_final_snapshot | 全環境`true`固定のため、意図せずdestroyした場合に最終スナップショットが残らない。cost-stopは停止のみでdestroyしないため通常運用では影響しないが、productionで`false`にするか要検討 |
+| max_allocated_storage | 全環境未設定（20GB固定）。ストレージ枯渇時に自動拡張されないため、productionで設定するか要検討 |

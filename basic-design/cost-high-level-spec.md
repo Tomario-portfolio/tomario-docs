@@ -1,127 +1,55 @@
-# コスト設計書
+# コスト設計
 
 ## 1. 基本方針
 
-全環境で、コストのかかるリソースは「使うときだけ起動する」運用で対応する（cost-stop/start）。productionも一般公開前は同じ運用とする。選定理由は[ADR: cost-stop/startによる使う時だけ起動する運用](../../tomario-steering/adr/infra/cost/001-cost-stop-start-operation.md)を参照。
-WAF Web ACLやRDSインスタンスクラスなど、"停止"ができないが"作成・削除"や"一時変更"は可能なリソースについても、同じ発想で「使う時だけ作る」運用に寄せることでコストを抑える。
+全環境で、コストのかかるリソースは「使うときだけ起動する」運用で対応する（cost-stop/start）。productionも一般公開前は同じ運用とし、公開時に常時稼働へ切り替える。選定理由は[ADR: cost-stop/startによる使う時だけ起動する運用](../../tomario-steering/adr/infra/cost/001-cost-stop-start-operation.md)を参照。
 
-試算額は東京リージョンの単価に基づく概算であり、実績値ではない。
+"停止"ができないが"作成・削除"や"一時変更"は可能なリソースについても、同じ発想で「使う時だけ作る」運用に寄せる。
 
----
-
-## 2. リソース別コスト方針
-
-### 無料で使えるリソース
-
-| リソース | 理由 |
-|---------|------|
-| VPC / サブネット / IGW / ルートテーブル | 完全無料 |
-| セキュリティグループ | 完全無料 |
-| IAM | 完全無料 |
-| CloudWatch メトリクス・アラーム（10個まで） | 無料枠内 |
-| SNS | 100万通知/月まで無料 |
-| GitHub Actions | パブリックリポジトリは無制限無料 |
-| S3 VPCエンドポイント（Gateway型） | 完全無料 |
-| CloudTrail（管理イベント） | 完全無料 |
-| AWS Budgets（2つまで） | 完全無料 |
-| Cost Anomaly Detection | 完全無料 |
-
-### コストが発生するリソースと対策
-
-| リソース | 常時起動した場合の月額目安 | 対策 | 対策後のコスト |
-|---------|----------|------|-------------|
-| ALB | ~$18/月 | 作業時以外は削除する | $0 |
-| ECS Fargate | ~$9/月/タスク（0.25vCPU / 0.5GB、ARM64） | 作業時以外はタスク数0にする | $0 |
-| VPCエンドポイント（Interface型×5、2AZ） | ~$102/月（$0.014/時間 × ENI 10個） | 作業時以外は削除する | $0 |
-| RDS（db.t3.micro、Single-AZ） | ~$22/月（インスタンス ~$19 + ストレージ20GB ~$3） | 作業時以外は停止する | ~$3/月（ストレージのみ） |
-| Secrets Manager | ~$0.80/月 | DB認証情報・Flask SECRET_KEYの2件を管理 | ~$0.80/月 |
-| GuardDuty | ~$1〜3/月 | 停止できないため常時有効 | ~$0.50/月（低トラフィック） |
-| VPC Flow Logs（S3出力） | ~$0.02/月 | ― | ~$0.02/月 |
-| CloudWatch（Container Insights） | 稼働時間に応じた時間按分 | 稼働時のみメトリクスが発生 | 月10時間稼働で~$0.15/月 |
-
-### 使用しないリソース
-
-| リソース | 月額 | 不使用の理由 |
-|---------|------|------------|
-| NAT ゲートウェイ | ~$45/月（AZごと） | VPCエンドポイントで代替。bootstrap_imageのプライベートECR参照化により唯一の必要理由も解消済み（2026-07-10） |
-
-### 「停止」できないが「作成・削除」で代替するリソース
-
-| リソース | 特徴 | 対策 |
-|------|------|------|
-| WAF（Web ACL）・AWS Config・Security Hub | 時間按分課金、停止という状態が無い（存在／削除の二択） | productionのみ、`security-stack.yml`で必要な期間だけ作成・有効化する（[security-high-level-spec.md](security-high-level-spec.md)参照） |
-| RDSインスタンスクラス（負荷テスト時） | 一時的なスケールアップが必要 | 通常時は`db.t3.micro`のまま、負荷テスト直前だけAWS CLIで`db.t4g.medium`に変更（`apply_immediately`）し、終了後に戻す。Terraformの値は変更しない |
+リソース別の月額目安・運用状況別の試算は[環境定義書](../environment-definitions/cost-environment-design.md)に記載する。
 
 ---
 
-## 3. 運用コスト試算
+## 2. リソース別の方針
 
-### dev / staging
-
-| 状況 | 月額目安 |
-|------|---------|
-| 普段（ALB削除・ECSタスク0・VPCエンドポイント削除・RDS停止） | ~$7/月（nonprodアカウント全体の実測 約$0.23/日） |
-| 作業中（すべて起動） | 時間課金。1時間あたり~$0.2（dev）、~$0.22（staging、タスク2つ） |
-
-### production
-
-production環境も**一般公開前はdev/staging同様のcost-stop運用**とする。公開時に常時稼働に切り替える。
-
-| 状況 | 月額目安 |
-|------|---------|
-| 普段（公開前・cost-stop中） | ~$7/月（nonprodと同程度の想定） |
-| 稼働時（作業確認・試験など） | 時間課金。1時間あたり~$0.22 |
-| 常時稼働（公開後） | ~$165/月（内訳は下表） |
-
-#### 常時稼働（公開後）の内訳
-
-| リソース | 月額目安 | 備考 |
-|---------|---------|------|
-| ALB | ~$18/月 | |
-| ECS Fargate（0.25vCPU/0.5GB×2タスク、ARM64） | ~$18/月 | オートスケール時（最大4タスク）はさらに増加 |
-| VPCエンドポイント（Interface×5、2AZ） | ~$102/月 | NAT Gatewayを使わないため常時稼働では必須。最大のコスト要因 |
-| RDS（db.t3.micro、Single-AZ） | ~$22/月 | |
-| Secrets Manager | ~$0.80/月 | DB認証情報・SECRET_KEYの2件 |
-| GuardDuty | ~$1〜3/月 | prodアカウント単独で有効化 |
-| CloudTrail（管理イベント） | $0 | |
-| VPC Flow Logs（S3出力） | ~$0.02/月 | |
-| **常時稼働ベースライン合計** | **~$165/月** | |
-
-常時稼働時はVPCエンドポイントが全体の約6割を占める。公開時には、ENIを1AZに寄せる・利用頻度の低い`ssmmessages`を必要時のみ作成する等の削減策を検討する。
-
-以下は常時稼働に切り替えた後も、必要な期間だけ有効化する。
-
-| リソース | 常時起動した場合の月額目安 | 運用方針 |
-|---------|-------------------------|---------|
-| AWS WAF（CloudFront・ALB用Web ACL） | ~$14〜16/月 | 必要な期間のみ作成、それ以外は削除 |
-| Security Hub + AWS Config | ~$3〜5/月 | 必要な期間のみ有効化、それ以外は無効化 |
+| 分類 | 対象リソース | 方針 |
+|------|------------|------|
+| 停止・削除できる時間課金リソース | ALB・ECSタスク・Interface型VPCエンドポイント・RDS | 未使用時はALB・VPCエンドポイントを削除、ECSタスク数を0、RDSを停止する（cost-stop対象） |
+| 停止できず、作成・削除で代替するリソース | WAF（Web ACL）・AWS Config・Security Hub | productionのみ導入し、必要な期間だけ作成・有効化する（[security-high-level-spec.md](security-high-level-spec.md)参照） |
+| 一時変更で代替するリソース | RDSインスタンスクラス | 負荷テスト時のみ一時的にスケールアップし、終了後に戻す（[ADR: RDSインスタンスクラスの選定](../../tomario-steering/adr/infra/database/005-db-instance-class-selection.md)参照） |
+| 常時有効とするリソース | GuardDuty・CloudTrail（管理イベント）・Secrets Manager・VPC Flow Logs | 停止できない、または低額なため常時有効 |
+| 使用しないリソース | NAT Gateway | VPCエンドポイントで代替する（[network-high-level-spec.md](network-high-level-spec.md)参照） |
 
 ---
 
-## 4. コスト管理の運用方法
+## 3. コスト管理の運用
 
 ### cost-stop / cost-start
 
-`tomario-infra`の`cost-stop.yml`・`cost-start.yml`（GitHub Actions）で、ALB・ECSタスク・Interface型VPCエンドポイントの削除/作成とRDSの停止/起動をまとめて行う。nonprod/prodのどちらを対象にするかはワークフローの入力で選択する。
+`tomario-infra`の`cost-stop.yml`・`cost-start.yml`（GitHub Actions）で、上記の停止・削除対象リソースをまとめて削除/作成・停止/起動する。対象アカウント（nonprod/prod）はワークフローの入力で選択する。
 
 ### RDSの7日自動起動への対策
 
 RDSは停止しても7日後にAWSにより自動で起動される。
-全環境にRDS自動停止Lambda（`modules/rds-autostop`）を配置し、毎日1回、ECSが停止しているのにRDSだけ起動している状態を検知して再停止する（詳細は[database-high-level-spec.md](database-high-level-spec.md)参照）。
+全環境にRDS自動停止Lambda（`modules/rds-autostop`）を配置し、EventBridgeで1時間ごとに起動して、7日制約による自動起動のRDSイベントが記録され、かつECSサービスが稼働していない場合に再停止する。cost-startや手動で起動した場合は自動起動のイベントが記録されないため、止めない。
 
 ### コスト監視
 
-| アカウント | 月間予算（AWS Budgets） | 日次の異常検知 | Cost Anomaly Detection |
-|----------|----------------------|--------------|----------------------|
-| nonprod | $10（80%・100%到達時にメール通知） | $0.24/日 | サービス別、$5以上の異常を翌日メール通知 |
-| prod | $130（同上） | $0.24/日（nonprodの実測値を暫定流用） | 同上 |
+アカウントごとに以下で想定外の課金を早期に検知する。
 
-日次の閾値は、cost-stop状態でのベースライン実測（約$0.23/日）をわずかに上回る値とし、cost-stopの消し忘れを翌日には検知できるようにしている。
+| 仕組み | 目的 |
+|-------|------|
+| AWS Budgets（月間予算） | 月間予算の到達をメール通知する |
+| 日次の異常検知 | cost-stop状態のベースラインをわずかに上回る閾値とし、cost-stopの消し忘れを翌日には検知する |
+| Cost Anomaly Detection | サービス別の異常な増加をメール通知する |
+
+予算額・閾値の具体値は[環境定義書](../environment-definitions/cost-environment-design.md)を参照。
 
 ### productionの公開時の切り替え
 
 公開時は常時稼働へ切り替える。必要な変更は以下の通り。
 
 - cost-stop/startの運用対象からproductionを外す
-- ALB削除保護（`enable_deletion_protection`）を有効化する（現在はcost-stopでALBを削除するため全環境無効）
-- 月間予算（$130）を常時稼働の試算（~$165/月）に合わせて見直す
+- ALB削除保護を有効化する（現在はcost-stopでALBを削除するため全環境無効）
+- 月間予算を常時稼働の試算額に合わせて見直す
+- 常時稼働時に最大のコスト要因となるVPCエンドポイントの削減策（ENIを1AZに寄せる、利用頻度の低いエンドポイントを必要時のみ作成する等）を検討する

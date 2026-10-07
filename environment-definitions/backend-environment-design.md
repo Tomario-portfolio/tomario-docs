@@ -1,14 +1,8 @@
 # backend 環境定義
 
-## 基本方針
+ALB・ターゲットグループ・ECS・関連IAMロールを管理するコンポーネント（`modules/backend`）。ECRは[ecr-environment-design.md](ecr-environment-design.md)で定義する。
 
-| 項目 | 内容 |
-|------|------|
-| Terraformバージョン | ~> 1.5 |
-| AWSプロバイダー | hashicorp/aws ~> 6.0 |
-
-ALB・ターゲットグループ・ECS・ECRをまとめて管理するコンポーネント。
-コスト管理のため、作業時以外はALB削除・ECSタスク停止・VPCエンドポイント削除を行う運用とする。
+ALB・ECSタスクはcost-stopの対象（未使用時はALB削除・ECSタスク数0）。productionも一般公開前は同じ扱いとする（[cost-high-level-spec.md](../basic-design/cost-high-level-spec.md)参照）。
 
 ---
 
@@ -24,6 +18,8 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 |------|----------|-------|--------|
 | インバウンド | TCP | 80 | 0.0.0.0/0 |
 | アウトバウンド | 全て | 全て | 0.0.0.0/0 |
+
+送信元はCloudFrontのIPに限定せず、リスナールールの`X-Origin-Verify`ヘッダー検証でCloudFront経由以外を拒否する（下記リスナー参照）。
 
 ### ECS-SG
 
@@ -45,17 +41,22 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 | ALB名 | tomario-dev-alb | tomario-staging-alb | tomario-production-alb |
 | スキーム | internet-facing | internet-facing | internet-facing |
 | 配置サブネット | パブリックサブネット×2 | パブリックサブネット×2 | パブリックサブネット×2 |
-| アクセスログ | 有効。S3（ログ集約バケット、`logging-environment-design.md`参照）の`/alb/`プレフィックスへ出力（2026-07-13実装） | 同左 | 同左 |
-| 削除保護（`enable_deletion_protection`） | 無効（固定値、変数化していない） | 無効（同左） | 無効（同左、一般公開前のため） |
-| 運用 | 未使用時は削除（~$17/月） | 未使用時は削除（負荷テスト実施時のみ起動） | 一般公開前：未使用時は削除（dev/staging同様のcost-stop対象）。公開後：常時起動（~$18/月、デモ可能な状態を維持） |
-
-**一般公開時の切り替え方針：** `enable_deletion_protection`はコード上`false`固定（変数化していない）。公開して常時稼働へ切り替えるタイミングで、`modules/backend/alb.tf`を直接`true`に変更する想定（詳細は[cost-high-level-spec.md](../basic-design/cost-high-level-spec.md)参照）。
+| アクセスログ | S3ログ集約バケットの`/alb/`プレフィックス（[logging-environment-design.md](logging-environment-design.md)参照） | 同左 | 同左 |
+| 削除保護（`enable_deletion_protection`） | 無効（`modules/backend/alb.tf`で`false`固定） | 無効 | 無効（一般公開時に`true`へ変更する） |
 
 ### リスナー
 
-| プロトコル | ポート | アクション |
-|----------|-------|---------|
-| HTTP | 80 | ターゲットグループへ転送 |
+| プロトコル | ポート | デフォルトアクション |
+|----------|-------|------------------|
+| HTTP | 80 | 固定レスポンス 403（`Forbidden`） |
+
+### リスナールール
+
+| 優先度 | 条件 | アクション |
+|-------|------|----------|
+| 1 | HTTPヘッダー`X-Origin-Verify`がCloudFrontと共有するシークレット値と一致 | ターゲットグループへ転送 |
+
+シークレット値は環境ごとに`random_password`で生成し、CloudFrontのカスタムヘッダーとALBのリスナールールに同じ値を設定する。
 
 ### ターゲットグループ
 
@@ -63,18 +64,11 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 |------|-----|---------|---|
 | ターゲットグループ名 | tomario-dev-tg | tomario-staging-tg | tomario-production-tg |
 | ターゲットタイプ | ip | ip | ip |
-| プロトコル | HTTP | HTTP | HTTP |
-| ポート | 8080 | 8080 | 8080 |
+| プロトコル / ポート | HTTP / 8080 | HTTP / 8080 | HTTP / 8080 |
 | ヘルスチェックパス | /health | /health | /health |
 | ヘルスチェック間隔 | 30秒 | 30秒 | 30秒 |
 | 正常判定しきい値 | 2回 | 2回 | 2回 |
 | 異常判定しきい値 | 2回 | 2回 | 2回 |
-
----
-
-## ECR
-
-2026-07-10より`modules/ecr`として独立し、`envs/nonprod/shared`へ移設済み。詳細は[`ecr-environment-design.md`](ecr-environment-design.md)を参照。
 
 ---
 
@@ -85,8 +79,6 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 | クラスター名 | tomario-dev-cluster | tomario-staging-cluster | tomario-production-cluster |
 | Container Insights | 有効 | 有効 | 有効 |
 
-全環境共通モジュール（`modules/backend/ecs.tf`）で無条件に有効化している（2026-09-29、PR #89）。`RunningTaskCount`等のメトリクスがContainer Insights有効時のみ配信される仕様のため、ダッシュボードでのタスク数可視化に必要。
-
 ---
 
 ## ECS Task Definition
@@ -95,23 +87,26 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 |------|-----|---------|---|
 | タスク定義名 | tomario-dev-task | tomario-staging-task | tomario-production-task |
 | 起動タイプ | FARGATE | FARGATE | FARGATE |
-| CPU | 256（0.25 vCPU） | 256（変更なし。垂直スケールはしない方針、2026-07-11決定） | 256（変更なし。stagingと同一） |
-| メモリ | 512 MB | 512 MB（変更なし） | 512 MB（stagingと同一） |
+| CPU | 256（0.25 vCPU） | 256 | 256 |
+| メモリ | 512 MB | 512 MB | 512 MB |
 | CPUアーキテクチャ | ARM64（Graviton） | ARM64（Graviton） | ARM64（Graviton） |
-| bootstrap_image | `tomario-app`（プライベートECR）の`bootstrap`タグ | 同左（旧：public ECR Galleryを参照しNAT無しVPCでpull失敗していたため修正、2026-07-10） | `tomario-production-app`（別リポジトリ）の`bootstrap`タグ |
+| bootstrap_image | `tomario-app`（プライベートECR）の`bootstrap`タグ | 同左 | `tomario-production-app`の`bootstrap`タグ |
 | コンテナポート | 8080 | 8080 | 8080 |
-| ログドライバー | awslogs（CloudWatch Logs、保持7日） | awslogs（CloudWatch Logs、保持30日） | awslogs（CloudWatch Logs、保持90日） |
+| ログドライバー | awslogs（`/ecs/tomario-dev`） | awslogs（`/ecs/tomario-staging`） | awslogs（`/ecs/tomario-production`） |
 
-機密情報はSecrets Managerから取得し、非機密の接続情報は環境変数として直接渡す。
+ログの保持期間・マルチライン設定は[monitoring-environment-design.md](monitoring-environment-design.md)を参照。
+
+### 環境変数
 
 | 環境変数 | 取得元 | 備考 |
 |---------|--------|------|
-| DB_HOST | 環境変数（Terraform） | RDSエンドポイント（非機密） |
-| DB_PORT | 環境変数（ハードコード） | `3306`（固定値） |
-| DB_NAME | 環境変数（ハードコード） | `tomario`（固定値） |
-| DB_USER | Secrets Manager | RDSマスターユーザー名（`manage_master_user_password`でAWSが管理。自動スケジュールでの定期ローテーションは未設定、CLIで手動トリガー可能） |
+| DB_HOST | 環境変数（Terraform） | RDSエンドポイント |
+| DB_PORT | 環境変数（固定値） | `3306` |
+| DB_NAME | 環境変数（固定値） | `tomario` |
+| DB_USER | Secrets Manager | RDSマスターユーザー名（`manage_master_user_password`でAWSが管理） |
 | DB_PASSWORD | Secrets Manager | RDSマスターパスワード（同上） |
-| SECRET_KEY | Secrets Manager | Flask セッション署名キー（**手動登録、ローテーション未設定**。SEC-8として改善を検討中） |
+| SECRET_KEY | Secrets Manager | Flaskセッション署名キー。全環境で初期値を`random_password`で生成し、以降は90日ごとに自動ローテーション（下記「SECRET_KEYの自動ローテーション」参照） |
+| SECRET_KEY_PREVIOUS | Secrets Manager（`AWSPREVIOUS`） | 1つ前の鍵。アプリは`SECRET_KEY_FALLBACKS`に入れ、ローテーション前に発行されたcookieも受け付ける |
 
 ---
 
@@ -121,14 +116,14 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 |------|-----|---------|---|
 | サービス名 | tomario-dev-service | tomario-staging-service | tomario-production-service |
 | 起動タイプ | FARGATE | FARGATE | FARGATE |
-| タスク数（desired） | 1（作業時） / 0（未使用時） | 2（作業時） / 0（未使用時） | 2（作業時）/ 0（未使用時）。stagingと同じcost-stop対象（リリース後は常時2で固定） |
-| Application Auto Scaling | 無効 | 有効（min=2, max=4, target CPU 70%） | 有効（min=2, max=4, target CPU 70%、stagingと同一設定） |
+| タスク数（desired） | 1（作業時） / 0（未使用時） | 2（作業時） / 0（未使用時） | 2（作業時） / 0（未使用時）。公開後は常時2 |
+| Application Auto Scaling | 無効 | 有効（min=2, max=4, target CPU 70%） | 有効（min=2, max=4, target CPU 70%） |
 | 配置サブネット | プライベートサブネット×2 | プライベートサブネット×2 | プライベートサブネット×2 |
 | パブリックIP割り当て | 無効 | 無効 | 無効 |
-| デプロイ方式 | ローリングアップデート | ローリングアップデート | ローリングアップデート（初回構築時はBlue/Greenを導入しない。Wave BでstagingへCodeDeployを先行導入・検証してからproductionへ展開） |
+| デプロイ方式 | ローリングアップデート | ローリングアップデート | ローリングアップデート |
 | デプロイサーキットブレーカー | 有効（`enable=true, rollback=true`） | 有効（同左） | 有効（同左） |
 
-デプロイサーキットブレーカーは2026-07-11にベストプラクティスレビューで新規発見し、dev/staging共通で追加することにした。デプロイ失敗時に自動ロールバックする安全網で、Blue/Greenデプロイより導入コストが低い。
+デプロイ方式の判断は[ADR: デプロイの安全網](../../tomario-steering/adr/infra/backend/002-deployment-safety-net.md)を参照。
 
 ---
 
@@ -143,7 +138,7 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 | 付与ポリシー | 用途 |
 |------------|------|
 | AmazonECSTaskExecutionRolePolicy | ECRからのイメージ取得・CloudWatch Logsへの書き込み |
-| secretsmanager:GetSecretValue | DB接続情報の取得 |
+| secretsmanager:GetSecretValue | DB接続情報・SECRET_KEYの取得（対象シークレットのARNに限定） |
 
 ### Task Role（アプリケーションが使用）
 
@@ -151,12 +146,24 @@ ALB・ターゲットグループ・ECS・ECRをまとめて管理するコン�
 |------|-----|---------|---|
 | ロール名 | tomario-dev-task-role | tomario-staging-task-role | tomario-production-task-role |
 
-現時点では最小権限。アプリケーションがAWSサービスを直接呼び出す場合に追加する。
+| 付与権限 | 用途 |
+|---------|------|
+| ssmmessages:CreateControlChannel / CreateDataChannel / OpenControlChannel / OpenDataChannel | ECS Exec（障害対応・DBメンテナンス時のコンテナ接続） |
 
 ---
 
-## TBD解消事項
+## SECRET_KEYの自動ローテーション（`modules/secret-rotation`）
 
-| 項目 | 内容 |
-|------|------|
-| staging/production CPU/メモリ | devと同一（256/512）に決定。垂直スケールはせず、水平（タスク数・Auto Scaling）のみで負荷対応する方針（2026-07-11） |
+| 項目 | dev | staging | production |
+|------|-----|---------|---|
+| ローテーション間隔 | 90日 | 90日 | 90日 |
+| ローテーションLambda | tomario-dev-flask-secret-rotation | tomario-staging-flask-secret-rotation | tomario-production-flask-secret-rotation |
+| 鍵の生成 | `GetRandomPassword`（50文字） | 同左 | 同左 |
+| ローテーション後の反映 | ECSサービスが稼働中ならforce-new-deploymentでタスクを入れ替える（cost-stop中は次のcost-startで反映） | 同左 | 同左 |
+| 1つ前の鍵 | `AWSPREVIOUS`を環境変数`SECRET_KEY_PREVIOUS`として渡し、アプリが`SECRET_KEY_FALLBACKS`に設定（ローテーション後もログインが切れない） | 同左 | 同左 |
+
+---
+
+## 未解決事項
+
+なし

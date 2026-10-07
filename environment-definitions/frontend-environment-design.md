@@ -1,15 +1,7 @@
 # frontend 環境定義
 
-## 基本方針
-
-| 項目 | 内容 |
-|------|------|
-| Terraformバージョン | ~> 1.5 |
-| AWSプロバイダー | hashicorp/aws ~> 6.0 |
-
-CloudFront・S3を管理するコンポーネント。
-他のコンポーネント（network・backend）と独立して構築できる。
-独自ドメインは現時点では使用しない。CloudFrontのデフォルトドメイン（xxxx.cloudfront.net）でアクセスする。
+CloudFront・S3（静的ファイル配信）を管理するコンポーネント（`modules/frontend`）。
+独自ドメインは使用せず、CloudFrontのデフォルトドメイン（xxxx.cloudfront.net）とデフォルト証明書でHTTPSを提供する。
 
 ---
 
@@ -18,17 +10,11 @@ CloudFront・S3を管理するコンポーネント。
 | 項目 | dev | staging | production |
 |------|-----|---------|---|
 | バケット名 | tomario-dev-frontend | tomario-staging-frontend | tomario-production-frontend |
-| パブリックアクセス | ブロック（CloudFront経由のみ許可） | ブロック（CloudFront経由のみ許可） | ブロック（CloudFront経由のみ許可） |
-| バージョニング | 無効 | 無効 | **有効**（誤って上書き・削除したデプロイ資産を復元できるようにする。静的ファイルのみでサイズが小さく追加コストは軽微） |
+| パブリックアクセス | ブロック（CloudFront経由のみ許可） | 同左 | 同左 |
+| 暗号化 | SSE-S3（AES256、明示設定） | 同左 | 同左 |
+| バージョニング | 無効 | 無効 | 有効 |
 | ライフサイクルポリシー | 90日後にIntelligent-Tieringへ移行 | 同左 | 同左 |
-| 配信ファイル | HTML / CSS / JavaScript | HTML / CSS / JavaScript | HTML / CSS / JavaScript |
-
----
-
-## ACM証明書・独自ドメイン（検討中・後回し）
-
-現時点では不使用。CloudFrontのデフォルト証明書（*.cloudfront.net）でHTTPSを提供する。
-独自ドメイン取得は技術的な必要性が薄く、他設計への影響もないためいつでも後付け可能と判断し、優先度を下げて「検討中・後回し」としている（2026-07-11）。ACM証明書は独自ドメインとセットのため、ドメインを取得しない限り不要。
+| 配信ファイル | HTML / CSS / JavaScript | 同左 | 同左 |
 
 ---
 
@@ -36,13 +22,13 @@ CloudFront・S3を管理するコンポーネント。
 
 | 項目 | dev | staging | production |
 |------|-----|---------|---|
-| オリジン①（静的） | S3バケット | S3バケット | S3バケット |
-| オリジン②（動的） | ALB | ALB | ALB |
-| HTTPS | 有効（CloudFrontデフォルト証明書） | 有効（CloudFrontデフォルト証明書） | 有効（CloudFrontデフォルト証明書） |
+| オリジン（静的） | S3バケット | S3バケット | S3バケット |
+| オリジン（動的） | ALB（HTTP、`X-Origin-Verify`ヘッダーを付与） | 同左 | 同左 |
+| 証明書 | CloudFrontデフォルト証明書（*.cloudfront.net） | 同左 | 同左 |
 | HTTPリダイレクト | HTTP → HTTPS | HTTP → HTTPS | HTTP → HTTPS |
 | キャッシュ（静的） | 有効 | 有効 | 有効 |
 | キャッシュ（動的 /api/*） | 無効 | 無効 | 無効 |
-| WAF | なし | なし | あり（CloudFront用Web ACL。常時起動はせず面接期間のみ作成、詳細は`cost-environment-design.md`・`security-environment-design.md`参照） |
+| WAF | なし | なし | CloudFront用Web ACL（必要な期間のみ。[security-environment-design.md](security-environment-design.md)参照） |
 
 ### パスルーティング
 
@@ -53,12 +39,12 @@ CloudFront・S3を管理するコンポーネント。
 
 ---
 
-## Route53
+## Route53・ACM
 
-現時点では不使用。独自ドメインと同様「検討中・後回し」（上記参照）。
+使用しない（[ADR: 独自ドメイン・ACM証明書を導入しない](../../tomario-steering/adr/infra/frontend/001-no-custom-domain.md)参照）。
 
 ---
 
-## TBD解消事項
+## 未解決事項
 
 なし

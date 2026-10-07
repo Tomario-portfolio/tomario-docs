@@ -6,11 +6,23 @@
 |------|------|
 | プロジェクト名 | Tomario（ホテル予約システム） |
 | 対象環境 | nonprod（dev / staging / shared）／ prod（production） |
-| アカウント構成 | nonprod・prodの2アカウント構成。全環境構築済み。productionは一般公開前のため、dev/staging同様cost-stop/startで必要な時だけ起動する運用 |
+| アカウント構成 | nonprod・prodの2アカウント構成（判断の経緯は[ADR: アカウント戦略](../../tomario-steering/adr/infra/account/001-nonprod-prod-account-separation.md)参照） |
 | リージョン | ap-northeast-1（東京） |
-| IaC | Terraform（required_version >= 1.10） |
-| AWSプロバイダー | hashicorp/aws ~> 6.0 |
+| IaC | Terraform |
 | CI/CD | GitHub Actions + OIDC |
+
+---
+
+## 本書の位置付け
+
+本書（basic-design配下）は、システムがどんな層・コンポーネントで構成され、どこに配置され、どう通信し、どう責務を分けるかという「構成と方針」を記述する。
+以下は本書では扱わず、それぞれの文書へ分離している。
+
+| 内容 | 記載先 |
+|------|-------|
+| なぜその構成・運用を選んだか（設計判断の理由） | ADR（`tomario-steering/adr/infra/`） |
+| 環境ごとの具体的な設定値（リソース名・CPU/メモリ・インスタンスクラス・閾値・保持日数・コスト目安等） | [環境定義書](../environment-definitions/) |
+| 運用手順・試験手順とその実績 | `tomario-steering/verification/`・`tomario-steering/release-management/` |
 
 ---
 
@@ -28,12 +40,10 @@
 |----|------------|------|
 | 1 | [ネットワーク設計](network-high-level-spec.md) | VPC・サブネット・IGW・VPCエンドポイント・Flow Logs |
 | 2 | [コンピューティング設計](compute-high-level-spec.md) | ECS Fargate・ECR・ALB・デプロイ方式 |
-| 3 | [データベース設計](database-high-level-spec.md) | RDS・環境別構成・認証情報管理 |
-| 4 | [セキュリティ設計](security-high-level-spec.md) | セキュリティグループ・IAM・機密情報管理・WAF等 |
-| 5 | [可用性設計](availability-high-level-spec.md) | 冗長構成・稼働率目標 |
-| 6 | [バックアップ・リストア設計](backup-high-level-spec.md) | RTO/RPO・バックアップ方針・リストア運用 |
-| 7 | [モニタリング設計](monitoring-high-level-spec.md) | CloudWatchアラーム・SNS通知・ログ設計 |
+| 3 | [データベース設計](database-high-level-spec.md) | RDSの役割・接続方式・セキュリティ境界 |
+| 4 | [セキュリティ設計](security-high-level-spec.md) | セキュリティグループ・IAM・機密情報管理・検出 |
+| 5 | [可用性設計](availability-high-level-spec.md) | 可用性の基本方針・冗長構成 |
+| 6 | [バックアップ・リストア設計](backup-high-level-spec.md) | バックアップ方針・RTO/RPO・リストア方式 |
+| 7 | [モニタリング設計](monitoring-high-level-spec.md) | 監視方針・通知・ログ集約 |
 | 8 | [命名規則](naming-high-level-spec.md) | リソース命名・タグ規則 |
-| 9 | [コスト設計](cost-high-level-spec.md) | リソース別コスト方針・運用コスト試算 |
-
-詳細なパラメータ（リソース名・ポート・設定値）は[環境定義書](../environment-definitions/)に記載する。
+| 9 | [コスト設計](cost-high-level-spec.md) | コスト最適化の方針・コスト監視 |

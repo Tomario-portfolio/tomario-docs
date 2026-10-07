@@ -6,13 +6,7 @@
 環境は nonprod（dev / staging）／ prod（production）とし、workload環境ごとに独立したVPCを作成する。
 `shared`（nonprodアカウント共通のGuardDuty・CloudTrail・Budgets・ECR等）はアカウント単位のリソースのみでVPCを持たない。
 
-将来VPCピアリングが必要になるケースに備え、環境間でCIDRが重複しない設計とする。
-
-| 環境 | CIDR |
-|------|------|
-| dev | 10.0.0.0/16 |
-| staging | 10.1.0.0/16 |
-| production | 10.2.0.0/16（別アカウントのため厳密な重複回避は必須ではないが、将来のVPCピアリング等に備えて分けている） |
+将来VPCピアリングが必要になるケースに備え、環境間でCIDRが重複しない設計とする（具体的なCIDRは[環境定義書](../environment-definitions/network-environment-design.md)参照）。
 
 ## Availability Zone
 
@@ -43,24 +37,24 @@ ALBのみをパブリックサブネットに配置し、ECSタスク・RDSは�
 ## NAT Gateway
 
 NAT Gatewayは使用しない（全環境共通の方針）。
-ECSタスクからAWSサービスへのアクセスはVPCエンドポイント経由で行う。
-
-NAT Gatewayが無いことに起因する到達性の問題が過去に一度発生し、`bootstrap_image`の参照先変更で解決した。経緯は[ADR: bootstrap_imageのプライベートECR参照化](../../tomario-steering/adr/infra/network/002-bootstrap-image-private-ecr.md)を参照。
+プライベートサブネットからAWSサービスへのアクセスはVPCエンドポイント経由で行う。
+判断の経緯は[ADR: NAT Gateway vs VPC Endpoint](../../tomario-steering/adr/infra/network/001-vpc-endpoint-vs-nat-gateway.md)、NAT Gatewayが無いことに起因する到達性の問題とその対処は[ADR: bootstrap_imageのプライベートECR参照化](../../tomario-steering/adr/infra/network/002-bootstrap-image-private-ecr.md)を参照。
 
 ## VPCエンドポイント
 
 ECSタスク（プライベートサブネット）がAWSサービスに接続するためVPCエンドポイントを使用する。
-インターネットを経由せずAWS内部ネットワークで接続するため、NAT Gatewayより安全。
-Interface型は時間課金のため、全環境で作業時以外は削除する運用とする（cost-stop対象）。
+インターネットを経由せずAWS内部ネットワークで接続する。
 
 | エンドポイント | 種別 | 用途 |
 |-------------|------|------|
 | ECR API | Interface | ECSタスクのイメージ取得（API操作） |
 | ECR DKR | Interface | ECSタスクのイメージ取得（Docker通信） |
-| S3 | Gateway | ECRイメージレイヤーの取得（無料） |
+| S3 | Gateway | ECRイメージレイヤーの取得 |
 | CloudWatch Logs | Interface | ECSタスクのログ送信 |
 | Secrets Manager | Interface | DB接続情報・SECRET_KEYの取得 |
 | SSM Messages | Interface | ECS Exec（障害対応・DBメンテナンス時のコンテナ接続）のセッション確立 |
+
+Interface型は時間課金のため、未使用時は削除する運用の対象とする（[cost-high-level-spec.md](cost-high-level-spec.md)参照）。
 
 ## 通信フロー
 
@@ -82,7 +76,7 @@ Internet Gateway
 
 VPC内の全ネットワークトラフィックをS3（ログ集約バケット）に記録する。
 セキュリティインシデント時の通信経路の追跡やセキュリティグループルールの検証に使用する。
-保持期間は環境ごとのログ保持方針（dev=7日／staging=30日／production=90日、詳細は[monitoring-high-level-spec.md](monitoring-high-level-spec.md)参照）に準ずる。
+保持期間は環境ごとのログ保持方針に準ずる（[monitoring-high-level-spec.md](monitoring-high-level-spec.md)参照）。
 
 ## 命名規則
 

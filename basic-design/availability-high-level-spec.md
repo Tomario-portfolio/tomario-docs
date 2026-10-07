@@ -1,43 +1,47 @@
 # 可用性
 
-## システム重要度
+## 基本方針
 
-本システムはホテル予約サービスを提供するため、以下の重要度とする。
+アプリケーション層（ALB + ECS）は2AZに冗長化し、タスク障害・AZ障害時もサービスを継続できる構成とする。
+DB層（RDS）はSingle-AZとし、障害時はバックアップからの復旧で対応する。
+リージョンを跨いだ冗長構成は採用しない。
+
+## システム重要度
 
 | 環境 | 重要度 | 目標月間稼働率 |
 |------|--------|-------------|
-| production | Medium | 99.9%（常時稼働に切り替えた後の目標。マルチリージョン構成は採用せず、2AZ内の冗長化で現実的に狙える水準として設定） |
+| production | Medium | 99.9%（常時稼働に切り替えた後の目標。2AZ内の冗長化で狙える水準） |
 | staging | Low〜Medium | 目標なし（負荷テスト・障害試験の検証環境） |
 | dev | Low | 目標なし（手動リカバリー） |
 
-## 稼働時間
-
-production環境は本来24時間稼働を想定するが、**一般公開前はコスト優先でdev・staging同様のcost-stop運用とする**。公開時に常時稼働へ切り替える。
-dev・staging環境はコスト最適化のため作業時のみ起動する運用とする（cost-stop/start）。
+一般公開前は全環境で必要な時だけ起動する運用としている（[cost-high-level-spec.md](cost-high-level-spec.md)参照）。上記の稼働率目標は、productionを常時稼働に切り替えた後に適用する。
 
 ## 冗長構成
 
-### ALB + ECS Serviceによる冗長
+### アプリケーション層（ALB + ECS Service）
 
-ALBを上段に配置してECSタスクへトラフィックを転送する。
-ALBのヘルスチェックにより異常なタスクへのルーティングを自動的に停止する。
-ECSサービスがタスクの死活を監視し、異常終了時に自動で再起動する。
+```
+        ALB（2AZのパブリックサブネット）
+         │ヘルスチェックで異常タスクを切り離し
+   ┌─────┴─────┐
+ECSタスク(1a)   ECSタスク(1c)   ← ECSサービスが異常終了したタスクを自動再起動
+```
 
-| 環境 | タスク数 | Auto Scaling |
-|------|--------|-------------|
-| dev | 1 | 無効 |
-| staging | 2（2AZに分散） | 有効（min=2/max=4、target CPU 70%） |
-| production | 2（2AZに分散） | 有効（min=2/max=4、target CPU 70%） |
+- ALBのヘルスチェックにより、異常なタスクへのルーティングを自動的に停止する
+- ECSサービスがタスクの死活を監視し、異常終了時に自動で再起動する
+- staging・productionはタスクを2AZに分散配置するため、1AZ障害時も残りのタスクでサービスを継続できる
+- devは単一タスクとし、タスク再起動までの短時間のダウンタイムを許容する
+- 負荷増加時はAuto Scalingでタスク数を水平に増やす
 
-staging・productionはタスクを2AZに分散配置するため、1AZ障害時も残りのタスクでサービスを継続できる。
-CPU/メモリは全環境256/512とし、垂直スケールはせず水平（タスク数）のみで負荷に対応する（詳細は[compute-high-level-spec.md](compute-high-level-spec.md)参照）。
+タスク数・スケーリング設定の具体値は[環境定義書](../environment-definitions/backend-environment-design.md)を参照。
 
-### RDS
+### DB層（RDS）
 
-全環境Single-AZ構成とする。
-Multi-AZは変数化済みだが、全環境で無効としている。判断の経緯は[ADR: RDS Multi-AZの見送り](../../tomario-steering/adr/infra/database/003-multi-az-cost-tradeoff.md)を参照。
+全環境Single-AZ構成とし、DB層はAZ障害時の単一障害点として残ることを許容する。
+AZ障害時はポイントインタイムリストアで別AZに復元して対応する（[backup-high-level-spec.md](backup-high-level-spec.md)参照）。
+Multi-AZは変数化しており、可用性要件が高まった場合は設定変更で自動フェイルオーバー構成に切り替えられる。
 
-そのためDB層はAZ障害時の単一障害点として残る。AZ障害時はポイントインタイムリストアで別AZに復元する運用で対応する（[backup-high-level-spec.md](backup-high-level-spec.md)参照）。productionで可用性要件が高まった場合は、`multi_az`変数を`true`にするだけで自動フェイルオーバー構成に切り替えられる。
+Single-AZとした理由は[ADR: RDS Multi-AZの見送り](../../tomario-steering/adr/infra/database/003-multi-az-cost-tradeoff.md)を参照。
 
 ## リージョン間の冗長
 

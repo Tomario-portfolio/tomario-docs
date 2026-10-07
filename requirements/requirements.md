@@ -31,7 +31,7 @@
 - 会員ランク・ポイント制度
 - 予約内容の変更（キャンセル＋再予約のみ対応）
 - 複数施設（チェーン）管理
-- 独自ドメイン・ACM証明書（技術的な必要性が薄く、取得は後回し。詳細は[環境定義書](../environment-definitions/frontend-environment-design.md)参照）
+- 独自ドメイン・ACM証明書（導入しない。判断の根拠は[ADR](../../tomario-steering/adr/infra/frontend/001-no-custom-domain.md)参照）
 
 ---
 
@@ -190,15 +190,17 @@
 
 ## 8. 将来拡張（バックログ）
 
-現フェーズのスコープ外とした項目。優先度・詳細は`tomario-workspace/task-and-flow/remaining-task.md`で管理する。
+現フェーズでは意図的に見送り、条件を満たしたときに実装する項目。いま実施すると決めた残作業は`tomario-workspace/task-and-flow/remaining-task.md`で管理する。
 
-- 管理者機能（予約一覧の確認・客室登録）
-- 独自ドメイン・ACM証明書（Route53）
-- SEC-4: `pip-audit`のCI組み込み
-- SEC-8: Flask SECRET_KEYの定期ローテーション
-- CodeDeploy Blue/Greenデプロイへの移行
-- CloudWatch EMFによるアプリケーションカスタムメトリクス（予約件数・レスポンスタイム）
-- WAFのCOUNT/BLOCKモード切替えの仕組み（一般公開後、新ルール追加時に再検討）
+| 項目 | 今やらない理由 | 実装するきっかけ | 想定する対応 |
+|------|--------------|----------------|------------|
+| 管理者機能（予約一覧の確認・客室登録） | 一般ユーザー向けの予約導線の提供が現フェーズの目的のため | 運営者が画面から客室登録・予約確認を行う必要が出たとき | 管理者ロールと管理画面・APIを追加し、客室マスタのシード投入を置き換える |
+| WAFのCOUNT/BLOCKモード切替え | 実ユーザーがいないため、BLOCKモードでの誤検知に実害が無い | 一般公開後に、新しいWAFルールを追加するとき | `override_action`を変数化し、COUNTで誤検知を確認してからBLOCKへ切り替える |
+| request-idの付与・構造化ログ | スタックトレースの分断は`awslogs-multiline-pattern`で解消済みで、個別リクエスト単位の追跡が必要な場面が無い | 一般公開後など、個別リクエスト単位で障害を調査する必要が出たとき | `before_request`でrequest-id（`X-Amzn-Trace-Id`を流用、無ければ生成）を付与し、request-id付きの構造化ログを出力する |
+| CloudWatch EMFによるカスタムメトリクス（予約件数・レスポンスタイム） | 業務指標を監視する要件が無い（インフラ指標で監視は足りている） | 予約件数などの業務指標を監視・可視化する必要が出たとき | `tomario-app`でEMF形式のログを出力し、ダッシュボード・アラームを追加する |
+| productionでのPITRリストア訓練 | 破壊的操作のため、同一構成のstagingで訓練して代替している（実測RTO約14分） | 可用性の要件が上がったとき（Multi-AZの再検討と同時） | productionでPITRを実施し、RTOを実測する |
+
+設計判断として見送り、ADRに再検討の条件を記載しているもの：RDS Multi-AZ（[ADR](../../tomario-steering/adr/infra/database/003-multi-az-cost-tradeoff.md)）、Blue/Greenデプロイ（[ADR](../../tomario-steering/adr/infra/backend/002-deployment-safety-net.md)）、独自ドメイン・ACM証明書（[ADR](../../tomario-steering/adr/infra/frontend/001-no-custom-domain.md)）、Performance Insights（[ADR](../../tomario-steering/adr/infra/database/004-performance-insights-instance-class-limitation.md)）
 
 初期データ（客室マスタのシード投入）の仕様は、管理者機能が未実装であることに伴う運用上の暫定措置であり、運用設計（[backend-environment-design.md](../environment-definitions/backend-environment-design.md)）側で扱う。
 

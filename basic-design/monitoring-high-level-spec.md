@@ -2,52 +2,45 @@
 
 ## 基本方針
 
-システムの異常をCloudWatchアラームで検知し、SNS経由で通知する。
-インフラレベルの監視を行い、障害の早期発見と対応を可能にする。
+システムの異常をCloudWatchアラームで検知し、SNS経由で管理者へ通知する。
+インフラレベル（ALB・ECS・RDS）の監視を行い、障害の早期発見と対応を可能にする。
+ログは用途ごとに集約先を分け、環境の重要度に応じた期間保持する。
 
-## CloudWatchアラーム
+## 監視対象
 
-以下のメトリクスを監視し、閾値を超えた場合にアラームを発報する。
+| 監視対象 | 監視する観点 | 対象環境 |
+|---------|------------|---------|
+| ALB | 異常なターゲット（ECSタスク障害）の発生 | 全環境 |
+| ECS | CPU高負荷 | 全環境 |
+| RDS | CPU高負荷 | 全環境 |
+| WAF（CloudFront） | ブロック件数の急増（攻撃・誤検知） | production（セキュリティスタック有効時のみ） |
 
-| 監視対象 | メトリクス | 目的 | 対象環境 |
-|---------|----------|------|---------|
-| ALB | UnHealthyHostCount | ECSタスク障害の検知 | 全環境 |
-| ECS | CPUUtilization | 高負荷状態の検知 | 全環境 |
-| RDS | CPUUtilization | DB高負荷状態の検知 | 全環境 |
-| WAF（CloudFront） | BlockedRequests | 攻撃・誤検知の急増の検知 | production（セキュリティスタック有効時のみ） |
+アラーム発報時と復旧時の両方で通知する。
+メトリクス名・閾値・評価期間は[環境定義書](../environment-definitions/monitoring-environment-design.md)を参照。
 
-アラーム発報時と復旧時の両方でSNSトピックに通知する。
+## 可視化
 
-## ダッシュボード
+staging・productionでは、ECSのタスク数を表示するCloudWatchダッシュボードを作成し、Auto Scalingによるタスク数の増減を可視化する。
 
-staging・productionでは、ECSの`RunningTaskCount`を表示するCloudWatchダッシュボードを作成し、Application Auto Scalingによるタスク数の増減を可視化する。
-`RunningTaskCount`はContainer Insights有効時のみ配信されるメトリクスのため、全環境でContainer Insightsを有効化している（2026-09-29）。
+## 通知
 
-## SNS
-
-CloudWatchアラームの通知先としてSNSトピックを使用する。
-アラーム発報時に管理者へメールで通知する。
-
-## 性能分析
-
-RDSのクエリ単位の性能分析にPerformance Insightsの導入を検討したが、`db.t3.micro`／`t3.small`／`t4g.micro`（MySQL 8.4.9）では未サポートのため見送っている（`t4g.medium`以上への恒久的な引き上げが必要でコスト方針に反するため、2026-09-29に導入を断念）。
+CloudWatchアラームの通知先としてSNSトピックを環境ごとに作成し、管理者へメールで通知する。
 
 ## ログ設計
 
-ECSタスクのアプリケーションログはCloudWatch Logsに収集する。複数行にわたるスタックトレースが分断されないよう、`awslogs-multiline-pattern`でログイベントの区切りを指定している。
-ALBアクセスログ・VPC Flow Logs・CloudTrailは、ログ集約用のS3バケット（`modules/logging`）へ出力する。
-保持期間は環境ごとに3段階とする（CloudWatch Logsの`retention_in_days`／S3ライフサイクルの`expiration.days`を変数化）。
-
-| 環境 | 保持期間 | 判断理由 |
-|------|---------|---------|
-| dev | 7日 | 短期間で作り直す環境のため |
-| staging | 30日 | 負荷テスト・障害試験の結果分析のため |
-| production | 90日 | 気づくのが遅れたインシデントも追えるよう調査期間を確保 |
-
-| 対象 | 出力先 |
+| 対象 | 集約先 |
 |------|-------|
-| ECS（Flaskアプリ） | CloudWatch Logs（`/ecs/tomario-{env}`） |
-| ALB | S3（ログ集約バケット）にアクセスログを出力 |
-| VPCネットワーク | S3（ログ集約バケット）にFlow Logsを直接出力 |
-| CloudTrail | S3（ログ集約バケット）に出力（詳細は[security-high-level-spec.md](security-high-level-spec.md)参照） |
-| WAF | CloudWatch Logs（`aws-waf-logs-tomario-production-*`、保持30日）。productionでセキュリティスタック有効時のみ |
+| ECS（Flaskアプリ） | CloudWatch Logs |
+| ALBアクセスログ | S3（ログ集約バケット） |
+| VPC Flow Logs | S3（ログ集約バケット） |
+| CloudTrail | S3（ログ集約バケット。詳細は[security-high-level-spec.md](security-high-level-spec.md)参照） |
+| WAF | CloudWatch Logs（productionでセキュリティスタック有効時のみ） |
+
+- アプリケーションログは、複数行のスタックトレースが分断されないよう1イベントにまとめて収集する
+- 保持期間は環境ごとに段階を分ける。短期間で作り直すdevは短く、障害試験の分析に使うstagingは中程度、気づくのが遅れたインシデントも追えるようproductionは最も長くする
+
+ロググループ名・バケット名・保持日数の具体値は[環境定義書](../environment-definitions/logging-environment-design.md)（[monitoring](../environment-definitions/monitoring-environment-design.md)も参照）に記載する。
+
+## 性能分析
+
+RDSのクエリ単位の性能分析（Performance Insights）は導入しない。経緯は[ADR: RDS Performance Insightsの導入見送り](../../tomario-steering/adr/infra/database/004-performance-insights-instance-class-limitation.md)を参照。
