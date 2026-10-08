@@ -37,6 +37,30 @@ ALBはCloudFront経由のリクエストのみを処理する。CloudFrontがオ
 
 ポート番号・プロトコルの詳細は[環境定義書](../environment-definitions/)に記載する。
 
+## 暗号化
+
+### 転送データ
+
+利用者とCloudFrontの間、DBへの接続、AWSサービスへの接続を暗号化する。
+独自ドメイン・ACM証明書を導入しないため、ALBには証明書を設定できず、CloudFront→ALB間はHTTPとする（判断の経緯は[ADR: 独自ドメイン・ACM証明書を導入しない](../../tomario-steering/adr/infra/frontend/001-no-custom-domain.md)参照）。ALBへの直接アクセスは`X-Origin-Verify`ヘッダーの検証で拒否する。
+
+| 区間 | 方式 |
+|------|------|
+| ブラウザ → CloudFront | HTTPS（CloudFrontのデフォルトドメイン・デフォルト証明書。TLS1.0/1.1も有効なまま残る） |
+| CloudFront → ALB | HTTP |
+| ALB → ECSタスク | HTTP（VPC内の通信。ECS-SGでALB-SGからの通信のみ許可） |
+| ECSタスク → RDS | TLS必須（RDS側で平文での接続を拒否し、アプリはRDSのCA証明書でサーバー証明書を検証する） |
+| ECSタスク → AWSサービス（ECR・CloudWatch Logs・Secrets Manager等） | HTTPS（VPCエンドポイント経由） |
+
+### 保存データ
+
+| 対象 | 方式 |
+|------|------|
+| RDS | ストレージ暗号化 |
+| S3（静的ファイル・ログ集約・AWS Config） | SSE-S3（方式を明示的に設定する） |
+| Secrets Manager | KMSによる暗号化（サービス標準） |
+| CloudWatch Logs | サービス標準の暗号化 |
+
 ## IAM設計
 
 ### ECS Task Execution Role
@@ -96,12 +120,13 @@ VPC内のネットワークトラフィック（送信元・宛先IP・ポート
 
 ### セキュリティスタック（WAF・AWS Config・Security Hub、productionのみ）
 
-WAF・AWS Config・Security Hubはproductionでのみ導入し、1つのフラグでまとめてON/OFFして必要な期間だけ有効化する（`tomario-infra`の`security-stack.yml`、cost-stop/startとは独立）。nonprodには導入しない。判断の経緯は[ADR: セキュリティスタックの「使う時だけ有効化」運用](../../tomario-steering/adr/infra/security/001-security-stack-cost-management.md)を参照。
+WAF・AWS Config・Security Hubは、一般公開するproductionに導入し、常時有効とする。一般公開しない検証環境（nonprod）には導入しない。
+3つは`tomario-infra`の1つのフラグ（`enable_security_stack`）でまとめて有効化する。
 
 | サービス | 内容 |
 |---------|------|
 | WAF | CloudFront用・ALB用のWeb ACLを作成し、AWS Managed Rule Groupsで既知のWebアプリケーション層の攻撃を防御する。ブロックしたリクエストはCloudWatch Logsへ出力 |
-| AWS Config | 全リソースの設定変更履歴を記録（Security Hubの前提条件） |
+| AWS Config | 全リソースの設定変更履歴を記録し、設定の準拠状況の評価に使う（Security Hubの前提条件） |
 | Security Hub | CIS AWS Foundations Benchmarkへの準拠状況を可視化 |
 
 適用するルールグループ・CIS標準のバージョンは[環境定義書](../environment-definitions/security-environment-design.md)を参照。

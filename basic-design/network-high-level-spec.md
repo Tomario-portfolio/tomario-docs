@@ -54,7 +54,7 @@ ECSタスク（プライベートサブネット）がAWSサービスに接続�
 | Secrets Manager | Interface | DB接続情報・SECRET_KEYの取得 |
 | SSM Messages | Interface | ECS Exec（障害対応・DBメンテナンス時のコンテナ接続）のセッション確立 |
 
-Interface型は時間課金のため、未使用時は削除する運用の対象とする（[cost-high-level-spec.md](cost-high-level-spec.md)参照）。
+Interface型は時間課金のため、dev/stagingでは未使用時に削除する運用の対象とする（[cost-high-level-spec.md](cost-high-level-spec.md)参照）。
 
 ## 通信フロー
 

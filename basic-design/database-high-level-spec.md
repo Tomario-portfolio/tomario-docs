@@ -17,7 +17,7 @@ RDSはプライベートサブネット（2AZにまたがるDBサブネットグ
 接続を許可するのはECSタスク上のFlaskアプリケーションのみとする。
 
 ```
-ECSタスク（ECS-SG）──MySQL(3306)──▶ RDS（RDS-SG：ECS-SGからのみ許可）
+ECSタスク（ECS-SG）──MySQL over TLS(3306)──▶ RDS（RDS-SG：ECS-SGからのみ許可）
 ```
 
 ## セキュリティ境界
@@ -26,6 +26,7 @@ ECSタスク（ECS-SG）──MySQL(3306)──▶ RDS（RDS-SG：ECS-SGから�
 |------|------|
 | ネットワーク | RDS-SGでECS-SGからのMySQLポートのみ許可する |
 | 認証情報 | `manage_master_user_password`によりSecrets Managerで管理し、コードに直接記載しない。アプリはECSタスク起動時に環境変数として受け取る |
+| 転送データ | TLSでの接続を必須とし、平文での接続はRDS側で拒否する。アプリはRDSのCA証明書でサーバー証明書を検証する |
 | 保存データ | ストレージ暗号化を有効にする |
 
 ## 可用性・バックアップ

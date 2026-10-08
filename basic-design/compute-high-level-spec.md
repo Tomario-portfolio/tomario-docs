@@ -22,6 +22,12 @@ ECSタスクはECRからイメージをプルして起動する。
 
 ECSタスク定義の初期イメージ（`bootstrap_image`）は、各環境のプライベートECR内のプレースホルダーイメージを参照する（経緯は[ADR: bootstrap_imageのプライベートECR参照化](../../tomario-steering/adr/infra/network/002-bootstrap-image-private-ecr.md)参照）。
 
+### 脆弱性スキャンによるデプロイの制御
+
+CI（`deploy.yml`）で、ECRへプッシュしたイメージ（OSパッケージ・Pythonの依存パッケージ）をTrivyでスキャンする。
+修正版が存在するCritical/Highの脆弱性が見つかった場合はジョブを失敗させ、dev/stagingへのデプロイとproductionへの昇格を止める。修正版の無い脆弱性は、対応のしようが無くデプロイが止まり続けるのを避けるため対象外とする。
+スキャンはデプロイのたびにビルドしたイメージに対して行い、稼働中のイメージの定期的な再スキャンは行わない。方針は[ADR: 依存パッケージの脆弱性スキャン](../../tomario-steering/adr/apps/001-dependency-vulnerability-scanning.md)を参照。
+
 ## ECS Fargate
 
 ECSタスクはプライベートサブネットに配置し、インターネットからの直接アクセスを遮断する。
@@ -57,7 +63,7 @@ DB接続情報およびFlask SECRET_KEYはSecrets Managerから取得し、コ�
 ALBのヘルスチェックにより異常なタスクへのルーティングを自動的に停止する。
 CloudFrontからのリクエストのみを受け付けるため、CloudFrontが付与する`X-Origin-Verify`ヘッダーをリスナールールで検証する。
 
-ALBは「停止」ができないため、未使用時は削除する運用の対象とする（[cost-high-level-spec.md](cost-high-level-spec.md)参照）。
+productionは誤削除を防ぐためALBの削除保護を有効にする。dev/stagingのALBは「停止」ができないため、未使用時は削除する運用の対象とする（[cost-high-level-spec.md](cost-high-level-spec.md)参照）。
 
 ## デプロイ設計
 

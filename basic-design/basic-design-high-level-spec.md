@@ -8,6 +8,9 @@
 | 対象環境 | nonprod（dev / staging / shared）／ prod（production） |
 | アカウント構成 | nonprod・prodの2アカウント構成（判断の経緯は[ADR: アカウント戦略](../../tomario-steering/adr/infra/account/001-nonprod-prod-account-separation.md)参照） |
 | リージョン | ap-northeast-1（東京） |
+| アプリケーション | Python 3.12 / Flask 3.1（gunicornで起動するコンテナ） |
+| フロントエンド | 静的ファイル（HTML/CSS/JavaScript）をS3に配置し、CloudFrontで配信 |
+| データベース | MySQL 8.4（Amazon RDS） |
 | IaC | Terraform |
 | CI/CD | GitHub Actions + OIDC |
 
@@ -16,6 +19,7 @@
 ## 本書の位置付け
 
 本書（basic-design配下）は、システムがどんな層・コンポーネントで構成され、どこに配置され、どう通信し、どう責務を分けるかという「構成と方針」を記述する。
+実務と同じく本番運用（productionを一般公開して常時稼働させる状態）を前提とした本来の構成を記述する。ポートフォリオとして維持するために実際の運用が本書と異なる点は、[ポートフォリオとしての運用上の制約](../portfolio-constraints.md)に記載する。
 以下は本書では扱わず、それぞれの文書へ分離している。
 
 | 内容 | 記載先 |
