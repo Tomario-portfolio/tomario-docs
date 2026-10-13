@@ -27,8 +27,7 @@
 |------|------------------------|-----------|----------|
 | productionの稼働 | 常時稼働。ALBの削除保護を有効にし、予算・日次の異常検知は常時稼働の想定額を基準にする | dev/stagingと同じく必要な時だけ起動する（cost-stop/start）。ALB・Interface型VPCエンドポイントを削除し、ECSタスク数を0、RDSを停止する。RDSの7日自動起動は`rds-autostop` Lambdaで再停止する。ALBの削除保護は無効、予算・閾値はcost-stop状態が基準 | [ADR: cost-stop/start](../tomario-steering/adr/infra/cost/001-cost-stop-start-operation.md) |
 | セキュリティスタック（WAF・AWS Config・Security Hub） | productionで常時有効 | 1つのフラグ（`enable_security_stack`）でまとめてON/OFFし、検証や面接のタイミングなど必要な期間だけ有効化する | [ADR: セキュリティスタックの運用](../tomario-steering/adr/infra/security/001-security-stack-cost-management.md) |
-| 可用性の目標 | productionの目標月間稼働率を定める（99.9%） | 稼働率は測定・管理しない（常時稼働していないため） | 常時稼働していない間は、稼働率の目標が意味を持たない |
-| パスワードの複雑度 | 8文字以上とする（要件定義書4.1） | アプリでチェックしていない（何文字でも登録できる） | 実ユーザーが登録しない非公開の用途のため |
+| 可用性の目標 | productionの目標月間稼働率を定める（99.5%） | 稼働率は測定・管理しない（常時稼働していないため） | 常時稼働していない間は、稼働率の目標が意味を持たない |
 
 ---
 
@@ -45,8 +44,5 @@
 **セキュリティ**
 - セキュリティスタック（WAF・AWS Config・Security Hub）を常時有効にする（`security-stack.yml`でフラグをONにし、以降OFFにしない）
 
-**アプリケーション**
-- 会員登録時にパスワードが8文字以上かをチェックする
-
 **可用性**
-- productionの稼働率の目標（99.9%）に対する監視・報告を開始する
+- productionの稼働率の目標（99.5%）に対する監視・報告を開始する

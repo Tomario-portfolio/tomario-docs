@@ -10,7 +10,7 @@ DB層（RDS）はSingle-AZとし、障害時はバックアップからの復旧
 
 | 環境 | 重要度 | 目標月間稼働率 |
 |------|--------|-------------|
-| production | Medium | 99.9%（2AZ内の冗長化で狙える水準） |
+| production | Medium | 99.5%（RDSがSingle-AZのため、RDSのSingle-AZのSLAである99.5%を上限とする） |
 | staging | Low〜Medium | 目標なし（負荷テスト・障害試験の検証環境） |
 | dev | Low | 目標なし（手動リカバリー） |
 
