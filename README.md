@@ -52,7 +52,7 @@ Tomario（ホテル予約システム）の設計ドキュメントをまとめ�
 | どんな構成・方針で作るか | 基本設計書（basic-design/） |
 | 各環境に実際にどんな値で作るか | 環境定義書（environment-definitions/） |
 | なぜその構成・運用にしたか | ADR（[tomario-steering](https://github.com/Tomario-portfolio/tomario-steering)の`adr/`） |
-| 試験・運用の手順と実績 | [tomario-steering](https://github.com/Tomario-portfolio/tomario-steering)の`verification/`・`release-management/` |
+| 試験・運用の手順と実績 | [tomario-steering](https://github.com/Tomario-portfolio/tomario-steering)の`verification/`・`operations/`・`release-management/` |
 
 ---
 
@@ -62,4 +62,4 @@ Tomario（ホテル予約システム）の設計ドキュメントをまとめ�
 |----------|------|
 | [tomario-infra](https://github.com/Tomario-portfolio/tomario-infra) | インフラのTerraformコードとCI/CD |
 | [tomario-app](https://github.com/Tomario-portfolio/tomario-app) | アプリケーション（Flask）とフロントエンド、デプロイ用のCI/CD |
-| [tomario-steering](https://github.com/Tomario-portfolio/tomario-steering) | ADR・試験・リリース管理 |
+| [tomario-steering](https://github.com/Tomario-portfolio/tomario-steering) | ADR・試験・運用手順・リリース管理 |
